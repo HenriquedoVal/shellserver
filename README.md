@@ -10,20 +10,24 @@ But if your hardware gives you a fluid shell experience using Starship, I recomm
 
 ## Features
   
-Prompt with the fast glance on what is on directory  
+### Prompt with the fast glance on what is on directory  
+
 ![Bloated](./images/bloated.png)  
 This is the most bloated prompt that you will get.
 Will indicate the existence of Python, C, C++, Lua and Node files on directory.  
 The compilers searched are GCC and G++.  
   
-No lag from spawing process  
+### No lag from spawing process  
+
 ![Fast](./images/even_bloated.gif)  
   
-Better 'cd'  
+### Better 'cd'  
+
 ![p, pz](./images/p_pz.gif)  
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
-Listing directory  
+### Listing directory
+
 ![lss](./images/ll_la.gif)  
   
 ## CLI
