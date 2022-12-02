@@ -74,9 +74,10 @@ class Ls:
             print(
                 Style.RESET_ALL +
                 "\nYou can't access files from here because CD doesn't "
-                f"follow symlinks. Do first: cd {os.path.realpath('.')}",
+                f"follow symlinks. Do first: cd {self.path}",
                 file=self.out
             )
+            return
 
         if 'l' in self.opt:
             # if not l, i would want the oposite order

@@ -52,10 +52,13 @@ def fzfsearch(entry: str, addr: int) -> None:  # will receive two calls by 'pz'
 
 
 def list_directory(entry: str, addr: int) -> None:
-    entry = entry.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
-    params = entry.split(';')
-    ls = Ls(*params, to_cache=True)
+    opt, path = entry.split(';')
+    path = path.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
+
+    # Ls class can handle symlink
+    ls = Ls(opt, path, to_cache=True)
     ls.echo(0)
+
     sock.sendto(ls.out.data.encode(), addr)
 
 
@@ -70,6 +73,7 @@ def scan(entry, addr):  # Basically, main
 
     # Wsl
     curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
+    curdir = os.path.realpath(curdir)  # handle symlink
 
     brackets = []
     after_brackets = []
