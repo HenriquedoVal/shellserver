@@ -78,8 +78,8 @@ def exists_packs(git_dir: str) -> bool:
     return: bool: Is there a packs file in git/objects/info?
     """
 
-    packs = os.path.join(git_dir, '.git/objects/info/packs')
-    return os.path.exists(packs)
+    pack = os.path.join(git_dir, '.git/objects/pack')
+    return bool(os.listdir(pack))
 
 
 def get_branch_on_head(git_dir: str) -> str:
@@ -93,7 +93,7 @@ def get_branch_on_head(git_dir: str) -> str:
 
     with open(head_path, 'r') as head:
         content = head.read()
-    return content[content.rindex('/')+1:].strip()
+    return content[content.rindex('/') + 1:].strip()
 
 
 def get_ignore_patterns(git_dir: str) -> list:
@@ -124,7 +124,7 @@ def get_ignore_patterns(git_dir: str) -> list:
             try:
                 result.remove(line.strip()[1:])
             except ValueError:
-                pass  # noqa
+                pass
 
         # TODO: add $GIT_DIR/info/exclude
 
@@ -142,9 +142,12 @@ def get_ignore_patterns(git_dir: str) -> list:
     return result
 
 
-def get_hash(file_path: bytes | str) -> str:
+def get_hash(file_path: bytes | str, use_cr: bool = False) -> str:
     with open(file_path, 'rb') as in_file:
-        content = in_file.read().replace(b'\r\n', b'\n', -1)
+        content = in_file.read()
+
+    if not use_cr:
+        content = content.replace(b'\r\n', b'\n', -1)
 
     size = len(content)
     string = f"blob {size}\x00"

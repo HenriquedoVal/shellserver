@@ -14,8 +14,29 @@ def darkdetect_callback(arg):
         colors_map = dark_colors
 
 
+def resolve_duration(seconds: float) -> str:
+    # return like: 2h, 1h3m, 4m, 2m5s, 58.4s
+    minutes = int(seconds / 60)
+    hours, minutes = int(minutes / 60), minutes % 60
+    seconds = seconds % 60
+
+    res = ''
+    for val, unit in zip((hours, minutes, seconds), ('h', 'm', 's')):
+        if unit == 's' and not res and val > 2:
+            res += f'{val}{unit}'
+        elif unit == 's' and 'h' in res:
+            break
+        else:
+            if val and ((unit == 's' and (val > 2 or res)) or unit != 's'):
+                res += f'{int(val)}{unit}'
+
+    return res
+
+
+# maybe will be relevant:    
 def style(
     cwd: str,
+    link: str,
     git: int | bool,
     brackets: list,
     after: list,
@@ -26,6 +47,8 @@ def style(
 
     result = ''
 
+    equal = cwd == link
+
     if cwd == '~':
         cwd = ' ' + cwd
     elif cwd.startswith(os.environ['HOMEDRIVE']):
@@ -34,6 +57,16 @@ def style(
         cwd = ' ' + cwd
 
     result += colors_map['Cwd'] + cwd + colors_map['reset'] + ' '
+
+    if not equal:
+        result += (
+            colors_map['Link']
+            + ' '
+            + colors_map['Cwd']
+            + link
+            + colors_map['reset']
+            + ' '
+        )
 
     if git:
         result += (
@@ -58,13 +91,15 @@ def style(
     for item in colors_map:
         aux = aux.replace(colors_map[item], '', -1)
     width -= len(aux) + 11  # will be the size of datetime.now
+    # clock: 2, space, hh:mm:ss -> 11
 
     for char in chars_with_double_lenght:
         if char in result:
             width -= 1
 
-    if duration > 2:
-        width -= len(str(duration)) + 3
+    duration = resolve_duration(duration)
+    if duration:
+        width -= len(duration) + 3  # symbol, space before, space after
         result += ' ' * width + symbols_map['Duration'] + f' {duration} '
     else:
         result += ' ' * width
@@ -82,49 +117,55 @@ def style(
     return result
 
 
-chars_with_double_lenght = '🐍🌙🕓'
+chars_with_double_lenght = '🌙🕓'
 
+# this antipattern makes easier to know the 'length' of chars
 symbols_map = {
     'Git': '',
     'Branch': '',
-    'Python': '🐍',
+    'Python': '',
     'Lua': '🌙',
     'Node': '',
-    'C': 'C',
-    'Cpp': 'C++',
+    'C': '',
+    'Cpp': '',
+    'Pwsh': '',  # maybe  
     'Status': '',
     'Clock': '🕓',
     'Duration': ''
 }
 
 light_colors = {
-    'Cwd': "`e[36m",
-    'Git': "`e[31m",
-    'Branch': "`e[35m",
-    'Python': "`e[33m",
-    'Lua': "`e[34m",
-    'Node': "`e[32m",
-    'C': "`e[34m",
-    'Cpp': "`e[34m",
-    'Status': "`e[31m",
-    'reset': "`e[0m",
-    'no_error': "`e[32m",
-    'error': "`e[31m"
+    'Cwd': "\x1b[36m",
+    'Link': "\x1b[90m",
+    'Git': "\x1b[31m",
+    'Branch': "\x1b[35m",
+    'Python': "\x1b[33m",
+    'Lua': "\x1b[34m",
+    'Node': "\x1b[32m",
+    'C': "\x1b[34m",
+    'Cpp': "\x1b[34m",
+    'Pwsh': "\x1b[34m",
+    'Status': "\x1b[31m",
+    'reset': "\x1b[0m",
+    'no_error': "\x1b[32m",
+    'error': "\x1b[31m"
 }
 
 dark_colors = {
-    'Cwd': "`e[96m",
-    'Git': "`e[91m",
-    'Branch': "`e[95m",
-    'Python': "`e[93m",
-    'Lua': "`e[94m",
-    'Node': "`e[32m",
-    'C': "`e[34m",
-    'Cpp': "`e[94m",
-    'Status': "`e[91m",
-    'reset': "`e[0m",
-    'no_error': "`e[92m",
-    'error': "`e[91m"
+    'Cwd': "\x1b[96m",
+    'Link': "\x1b[90m",
+    'Git': "\x1b[91m",
+    'Branch': "\x1b[95m",
+    'Python': "\x1b[93m",
+    'Lua': "\x1b[94m",
+    'Node': "\x1b[32m",
+    'C': "\x1b[34m",
+    'Cpp': "\x1b[94m",
+    'Pwsh': "\x1b[94m",
+    'Status': "\x1b[91m",
+    'reset': "\x1b[0m",
+    'no_error': "\x1b[92m",
+    'error': "\x1b[91m"
 }
 
 colors_map = dark_colors if darkdetect.isDark() else light_colors

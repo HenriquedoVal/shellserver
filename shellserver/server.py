@@ -1,6 +1,6 @@
 import socket
 
-from .__init__ import PORT, APP_HOME, SEP
+from .__init__ import APP_HOME, PORT, SEP
 
 # Quit program as soon as possible
 try:
@@ -9,23 +9,31 @@ try:
 except OSError:
     raise SystemExit
 
-import sys
 import os
 import subprocess
+import sys
 import threading
 
-from . import gitinfo
+from . import gitinfo, histdb, theme
 from .cache import DirCache
+from .dispatch import Dispatcher
 from .ls import Ls
 from .style import style
 
 
-def shell_manager(entry: str) -> None:
-    if entry == 'Init':
+def shell_manager(entry: str, addr=None) -> None:
+    if entry.startswith('Init'):
+        shell = entry.removeprefix('Init')
+        dispatcher.register(addr, shell)
         clients.append(1)
+        completions = ';'.join(item[2] for item in cache.dirs)
+        dispatcher.send_through(sock, completions, addr)
 
     elif entry == 'Exit':
-        clients.pop()
+        try:
+            clients.pop()
+        except IndexError:
+            pass
         if not clients:
             cache.finish()
             # raising SystemExit would keep thread alive
@@ -37,15 +45,15 @@ def shell_manager(entry: str) -> None:
 
 
 def zsearch(entry: str, addr: int) -> None:
-    entry = entry.strip('.'+SEP).lower()
+    entry = entry.strip('.' + SEP).lower()
     result = cache.get(entry)
-    sock.sendto(result.encode(), addr)
+    dispatcher.send_through(sock, result, addr)
 
 
 def fzfsearch(entry: str, addr: int) -> None:  # will receive two calls by 'pz'
     if not entry:  # if its the first
         result = '\n'.join([i[1] for i in cache.dirs])
-        sock.sendto(result.encode(), addr)
+        dispatcher.send_through(sock, result, addr)
     else:
         cache.update_by_full_path(entry)
         cache.sort()
@@ -59,21 +67,44 @@ def list_directory(entry: str, addr: int) -> None:
     ls = Ls(opt, path, to_cache=True)
     ls.echo(0)
 
-    sock.sendto(ls.out.data.encode(), addr)
+    dispatcher.send_through(sock, ls.out.data, addr)
+
+
+def theme_manager(entry: str) -> None:
+    try:
+        if entry in ('all', ''):
+            theme.all()
+        elif entry == 'terminal':
+            theme.windows_terminal_change()
+        elif entry == 'blue':
+            theme.night_light_change()
+        elif entry == 'system':
+            theme.system_change()
+    except:
+        pass
+
+
+def history_search(entry: str, addr) -> None:
+    queries, width, height = entry.split(';')
+    width, height = int(width), int(height)
+
+    res = histdb.main(queries, width, height)
+    dispatcher.send_through(sock, res, addr)
 
 
 def scan(entry, addr):  # Basically, main
     no_error = int(entry[0])
     curdir, width, duration = entry[1:].split(';')
     width = int(width)
-    duration = round(float(duration), 1)
+    duration = round(float(duration.replace(',', '.')), 1)
 
     if curdir != home:
         cache.add(curdir)
 
     # Wsl
     curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
-    curdir = os.path.realpath(curdir)  # handle symlink
+
+    link = os.path.realpath(curdir)
 
     brackets = []
     after_brackets = []
@@ -86,32 +117,36 @@ def scan(entry, addr):  # Basically, main
         if status is not None:
             brackets.append(f'Status;{status}')
 
-    with os.scandir(curdir) as directory:
+    target_dir = curdir if curdir == link else link
+    with os.scandir(target_dir) as directory:
         for file in directory:
             if (py_not not in brackets
                and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
                 brackets.append(py_not)
 
             for exe in exes_with_version:
-                if (exe + f';{exes_with_version[exe]}' not in brackets
-                   and file.name.endswith(map_suffix[exe])):
-                    brackets.append(
-                        f'{map_lang_name[exe]};{exes_with_version[exe]}'
-                    )
+                notation = f'{map_lang_name[exe]};{exes_with_version[exe]}'
+                condition1 = notation not in brackets
+                if condition1 and file.name.endswith(map_suffix[exe]):
+                    brackets.append(notation)
 
             for exe in exes_to_search:  # those who don't have version
-                if (exe not in brackets
+                notation = map_lang_name[exe]
+                if (notation not in after_brackets
                    and file.name.endswith(map_suffix[exe])):
-                    after_brackets.append(map_lang_name[exe])
+                    after_brackets.append(notation)
 
     if home in curdir:
         curdir = '~' + curdir.removeprefix(home)
+    if home in link:
+        link = '~' + link.removeprefix(home)
 
-    stylized = style(
-        curdir, git_flag, brackets, after_brackets, no_error, width, duration
+    prompt = style(
+        curdir, link, git_flag, brackets,
+        after_brackets, no_error, width, duration
     )
 
-    sock.sendto(stylized.encode(), addr)
+    dispatcher.send_through(sock, prompt, addr)
 
 
 def mainloop():
@@ -119,20 +154,45 @@ def mainloop():
         entry, addr = sock.recvfrom(4096)
         entry = entry.decode()
 
-        if entry.startswith('%'):
+        if entry.startswith('1'):
             scan(entry[1:], addr)
 
-        elif entry.startswith('#'):
-            shell_manager(entry[1:])
+        elif entry.startswith('2'):
+            shell_manager(entry[1:], addr)
 
-        elif entry.startswith('!'):
+        elif entry.startswith('3'):
             zsearch(entry[1:], addr)
 
-        elif entry.startswith('*'):
+        elif entry.startswith('4'):
             fzfsearch(entry[1:], addr)
 
-        elif entry.startswith('@'):
+        elif entry.startswith('5'):
             list_directory(entry[1:], addr)
+
+        elif entry.startswith('6'):
+            theme_manager(entry[1:])
+
+        elif entry.startswith('7'):
+            history_search(entry[1:], addr)
+
+
+os.makedirs(APP_HOME, exist_ok=True)
+
+clients = []
+cache = DirCache()
+dispatcher = Dispatcher()
+home = os.path.expanduser('~')
+
+py_version = sys.version
+py_version = py_version[:py_version.index(' ')]
+py_not = 'Python' + ';' + py_version  # notation
+
+exes_with_version = {}
+
+
+#
+# Updating the executables that will be searched starts here
+#
 
 
 def get_version(exe) -> None:
@@ -144,48 +204,47 @@ def get_version(exe) -> None:
             creationflags=subprocess.CREATE_NO_WINDOW
         ).communicate()
     except FileNotFoundError:
-        return  # noqa
+        return
 
     if err:
-        return  # noqa
+        return
 
     if exe in ('g++', 'gcc'):
         out = out.splitlines()[0]
-        out = out[out.rindex(b')')+2:]
+        out = out[out.rindex(b')') + 2:]
         exes_with_version.update({exe: out.strip().decode()})
         exes_to_search.remove(exe)
     elif exe == 'node':
-        exes_with_version.update({exe: out.strip().decode()})
+        exes_with_version.update({exe: out.strip().decode()[1:]})
+        exes_to_search.remove(exe)
+    elif exe == 'pwsh':
+        exes_with_version.update({exe: out.split()[-1].strip().decode()})
         exes_to_search.remove(exe)
 
 
-os.makedirs(APP_HOME, exist_ok=True)
-
-clients = []
-cache = DirCache()
-home = os.path.expanduser('~')
-
-py_version = sys.version
-py_version = py_version[:py_version.index(' ')]
-py_not = 'Python' + ';' + py_version  # notation
-
-exes_to_search = ['node', 'g++', 'gcc', 'lua']
-exes_with_version = {}
+exes_to_search = ['node', 'g++', 'gcc', 'lua', 'pwsh']
 
 map_suffix = {
     'node': '.js',
     'g++': '.cpp',
     'gcc': '.c',
-    'lua': '.lua'
+    'lua': '.lua',
+    'pwsh': ('.ps1', '.psd1', '.psm1')
 }
 map_lang_name = {
     'node': 'Node',
     'g++': 'Cpp',
     'gcc': 'C',
-    'lua': 'Lua'
+    'lua': 'Lua',
+    'pwsh': 'Pwsh'
 }
+
+#
+# Stop here
+#
 
 for exe in exes_to_search:
     threading.Thread(target=get_version, args=(exe,)).start()
+
 
 mainloop()

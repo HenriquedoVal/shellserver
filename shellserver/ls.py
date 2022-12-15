@@ -1,10 +1,9 @@
-import sys
 import os
 import stat
+import sys
 import time
 
-from colorama import Fore, Style, init, deinit
-
+from colorama import Fore, Style, deinit, init
 
 check_0 = (
     ('d', stat.FILE_ATTRIBUTE_DIRECTORY),
@@ -19,6 +18,20 @@ check_1 = (
     ('s', stat.FILE_ATTRIBUTE_SYSTEM)
 )
 
+icons_map = {
+    'd': '',
+    'l': '',
+    'a': '',
+    'else': ''
+}
+
+colors_map = {
+    'd': Fore.LIGHTBLUE_EX,
+    'l': Fore.LIGHTCYAN_EX,
+    'a': Fore.LIGHTGREEN_EX,
+    'else': Fore.LIGHTYELLOW_EX
+}
+
 
 class Cache:
     __slots__ = 'data'
@@ -27,7 +40,7 @@ class Cache:
         self.data = ''
 
     def write(self, value):
-        self.data += value.replace('\x1b', '`e', -1).replace('$', '`$', -1)
+        self.data += value
 
 
 class Ls:
@@ -52,11 +65,14 @@ class Ls:
             with os.scandir(self.path) as scan:
                 # just add to the list if it will be ever displayed
                 # first we remove hidden ones if user hasn't asked for it
-                dir = [i for i in scan
-                       if (
-                           not (i.name.startswith('.') or i.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
-                           or 'a' in self.opt
-                       )]
+                dir = [
+                    i for i in scan
+                    if ('a' in self.opt or not (
+                        i.name.startswith('.') or
+                        i.stat().st_file_attributes &
+                        stat.FILE_ATTRIBUTE_HIDDEN)
+                        )
+                ]
 
         except NotADirectoryError:
             print(f'{self.path} is not a directory.', file=self.out)
@@ -66,7 +82,8 @@ class Ls:
             return
         except PermissionError as err:
             if signal:  # not going recursively on echo()
-                print(f'{str(err)[:12]} {err.strerror}: {err.filename}', file=self.out)
+                print(f'{str(err)[:12]} {err.strerror}: {err.filename}',
+                      file=self.out)
                 return
 
             self.path = os.path.realpath(self.path)
@@ -112,10 +129,11 @@ class Ls:
         if 'c' not in self.opt:
             return i.name
 
-        # if i.is_symlink(): doesn't work
+        # if i.is_symlink(): couldn't make it work
         if i.is_dir():
             # workaround
-            if os.path.realpath(i.path) != os.path.join(os.path.realpath(self.path), i.name):  # noqa: E501
+            joined = os.path.join(os.path.realpath(self.path), i.name)
+            if os.path.realpath(i.path) != joined:
                 return (Fore.CYAN
                         + i.name
                         + Fore.LIGHTBLACK_EX
@@ -175,26 +193,42 @@ class Ls:
     ):
 
         if data == 0x80:
-            str_res = list('-a---')
+            res = list('-a---')
         else:
-            str_res = list('-----')
+            res = list('-----')
             for check in check_0:
                 if data & check[1]:
-                    str_res[0] = check[0]
+                    res[0] = check[0]
 
             for ind, check in zip(range(1, 5), check_1):
                 if data & check[1]:
-                    str_res[ind] = check[0]
+                    res[ind] = check[0]
 
-        if 'c' not in self.opt:
-            return ''.join(str_res)
+        icon = ''
+        if 'i' in self.opt:
+            for ind in range(5):
+                if res[ind] == '-':
+                    continue
+                elif res[ind] in icons_map:
+                    icon = icons_map[res[ind]]
+                    break
+            else:
+                icon = icons_map['else']
 
-        for ind in range(5):
-            if str_res[ind] == '-':
-                continue
-            str_res[ind] = (Fore.BLUE + str_res[ind] + Style.RESET_ALL)
+        done = False  # flags coloring icon
+        if 'c' in self.opt:
+            for ind in range(5):
+                if res[ind] == '-':
+                    continue
+                if icon and res[ind] in icons_map and not done:
+                    icon = colors_map[res[ind]] + icon + Style.RESET_ALL + '  '
+                    done = True
+                res[ind] = (Fore.BLUE + res[ind] + Style.RESET_ALL)
 
-        return ''.join(str_res)
+        if icon == icons_map['else']:
+            icon = colors_map['else'] + icon + '  ' + Style.RESET_ALL
+
+        return icon + ''.join(res)
 
 
 def main():
@@ -207,7 +241,7 @@ def main():
         print(f'Ignored {args[2:]} parameter(s)')
         args = args[:2]
     if len(args) == 2 and not args[0].startswith('-'):
-        print('Try: py ls.py -acl path')
+        print('Try: py ls.py -acil path')
 
     Ls(*args).echo(0)
     deinit()

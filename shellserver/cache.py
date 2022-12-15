@@ -1,6 +1,6 @@
-import threading
-import pickle
 import os
+import pickle
+import threading
 
 from .__init__ import CACHE_PATH, SEP
 
@@ -29,9 +29,9 @@ class DirCache:
     def add(self, path: str) -> None:
         for item in self.dirs:
             if item[1] == path:
-                break  # noqa: E275, Missing whitespace. Bug in pylsp.
+                break
         else:
-            out = path[path.rindex(SEP)+1:].lower()
+            out = path[path.rindex(SEP) + 1:].lower()
             if not out:
                 out = path.strip(SEP).lower()
 
@@ -53,7 +53,7 @@ class DirCache:
         for ind in range(len(self.dirs)):
             if self.dirs[ind][1] == full_path:
                 self.dirs[ind][0] += 1
-                break  # noqa
+                break
 
     def finish(self):
         self._clear()
@@ -65,7 +65,7 @@ class DirCache:
     def _save(self) -> None:
         # if there were calls to clear the cache during this runtime
         if not os.path.exists(CACHE_PATH):
-            return  # noqa
+            return
         if self.flag:
             with open(CACHE_PATH, 'wb') as out:
                 pickle.dump(self.dirs, out, protocol=5)
@@ -87,6 +87,16 @@ class DirCache:
             self.finish()
             self.flag = False  # will make new threads possible
             raise SystemExit
+
+        # Save pid in temp file making easier to kill if
+        # server crash
+        try:
+            tmp_dir = os.environ['TMP'] + '/shellserver'
+            os.makedirs(tmp_dir, exist_ok=True)
+            with open(tmp_dir + '/shellserver_pid', 'w') as tmp_file:
+                print(os.getpid(), file=tmp_file)
+        except OSError:
+            pass
 
         root = tk.Tk()
         root.withdraw()

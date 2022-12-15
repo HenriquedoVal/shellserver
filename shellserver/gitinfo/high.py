@@ -27,6 +27,8 @@ def get_untracked_count_and_tracked_path(
     return: tuple[int, list[str]]: A tuple containing the number of untracked
            files and a list of full paths of tracked files.
     """
+    # Have to be just one function that does both works
+    # for performance benefits
 
     tracked = []
     untracked = 0
@@ -62,7 +64,7 @@ def get_untracked_count_and_tracked_path(
                 for pat in patterns:
                     # if there is a '/' in pat[:-1] i want re.match
                     # but then we'll need to remove the first '/' from path
-                    chk = int('/' in pat[:-1])
+                    chk = int(bool(re.match('[^\^]*/.*', pat[:-1])))
                     fun = re_funcs[chk]
                     if fun(pat, path[chk:]):
                         match = True
@@ -106,7 +108,7 @@ def parse_tree_object(data: bytes) -> list[tuple[str, str, str]]:
     return: list of tuples containing the type, hash and the filename
     """
 
-    if not data[data.index(b'\x00')+1:]:
+    if not data[data.index(b'\x00') + 1:]:
         return  # noqa
 
     res = []
@@ -123,16 +125,17 @@ def parse_tree_object(data: bytes) -> list[tuple[str, str, str]]:
         sep = piece.index(b' ')
 
         type_ = piece[:sep]
-        filename = piece[sep+1:]
+        filename = piece[sep + 1:]
 
         start = stop + 21  # next start
 
-        hexa = data[stop+1:start]
+        hexa = data[stop + 1:start]
         hexa = f'{int.from_bytes(hexa, "big"):x}'
+        hexa = hexa.zfill(40)
 
         res.append((type_.decode(), hexa, filename.decode()))
 
-        if not data[start+1:]:
+        if not data[start + 1:]:
             break  # noqa
 
     return res
@@ -160,7 +163,7 @@ def get_values_of_tree(
     level_path = git_dir + '/' + prepend_path
 
     for tup in tree:
-        # blob = 100644, tree = 040000, syml =
+        # blob = 100644, tree = 40000, syml =
         type_, hash_, name = tup
 
         if type_ == '100644':
@@ -170,7 +173,11 @@ def get_values_of_tree(
                 tracked.remove(file_path)
                 aux = low.get_hash(file_path)
                 if hash_ != aux:
-                    modified += 1
+                    cr = low.get_hash(file_path, use_cr=True)
+                    if cr == hash_:
+                        pass
+                    else:
+                        modified += 1
             else:
                 deleted += 1
 
@@ -183,7 +190,7 @@ def get_values_of_tree(
 
             if tree_items_list is not None:
                 mod, del_ = get_values_of_tree(
-                    git_dir, tree_items_list, tracked, '/' + name
+                    git_dir, tree_items_list, tracked, f'{prepend_path}/{name}'
                 )
 
                 modified += mod
@@ -224,7 +231,7 @@ def status(git_dir: str) -> tuple[int, int, int, int]:
         tree_h = low.get_content_by_hash(
             git_dir, last_cmmt_hash
         ).splitlines()[0].decode()
-        tree_h = tree_h[tree_h.index('tree')+5:].strip()
+        tree_h = tree_h[tree_h.index('tree') + 5:].strip()
 
         tree_items_list = parse_tree_object(
             low.get_content_by_hash(git_dir, tree_h)
@@ -240,6 +247,6 @@ def status(git_dir: str) -> tuple[int, int, int, int]:
     staged = len(tracked)
 
     if low.exists_packs(git_dir):
-        return untracked, 0, 0, deleted
+        return untracked, 0, 0, 0
 
     return untracked, staged, modified, deleted

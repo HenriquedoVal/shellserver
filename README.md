@@ -10,14 +10,14 @@ But if your hardware gives you a fluid shell experience using Starship, I recomm
 
 ## Features
   
-### Prompt with the fast glance on what is on directory  
+### Prompt with a fast glance at what is in directory  
 
 ![Bloated](./images/bloated.png)  
 This is the most bloated prompt that you will get.
-Will indicate the existence of Python, C, C++, Lua and Node files on directory.  
+It will indicate the existence of Python, C, C++, Lua, Node and PowerShell files on directory.  
 The compilers searched are GCC and G++.  
   
-### No lag from spawing process  
+### No lag from spawning processes  
 
 ![Fast](./images/even_bloated.gif)  
   
@@ -26,6 +26,19 @@ The compilers searched are GCC and G++.
 ![p, pz](./images/p_pz.gif)  
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
+### Switching Theme
+  
+![Switch-Theme](./images/switch_theme.gif)
+Can take four arguments: all, system, terminal, and blue.  
+terminal: Toggles Windows Terminal default theme between 'Tango Dark' and 'Solarized Light'.  
+system: Toggles system wide Dark Mode.  
+blue: Toggles 'Blue light reduction'.  
+all: Same as not passing arguments. Do all the above.
+  
+### Searching history
+
+![history](./images/history.gif)
+
 ### Listing directory
 
 ![lss](./images/ll_la.gif)  
@@ -33,7 +46,7 @@ Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'
 ## CLI
 
 The server knows how many clients it haves and will know if you quit shell with 'exit'  
-but if window is closed on 'X', it may outlive the shell. 
+but if window is closed on 'X' it may outlive the shell. 
 
 ~~~
 usage: shellserver [-h] {kill,clear}
@@ -48,12 +61,12 @@ options:
 ## Requirements
 
 - Python 3.10+
-- PowerShell 5+ (I think)
+- PowerShell 6.2 (I think)
 - Any NerdFont (I use MesloGS NF)
 
 ## Installation
 
-Currently, ShellServer will work only in PowerShell on Windows. A few things must be changed to make it work on Linux, so make an Issue if you want to use it. There are plans to get it to [Xonsh](https://github.com/xonsh/xonsh)
+Currently, ShellServer will work only in PowerShell on Windows. A few things must change to make it work on Linux, so make an Issue if you want to use it. There are plans to get it to [Xonsh](https://github.com/xonsh/xonsh)
 
 ~~~PowerShell
 > pip install shellserver  # or pip install --user shellserver
@@ -65,18 +78,11 @@ In your PowerShell profile:
 # By the beginning of the file
 pythonw -m shellserver  # note the 'w'
 
-# In some pwsh versions 'ls' is an alias to Get-Children
-Remove-Alias ls
-
-#
-# Other things. Must give time to bind the port
-#
-
 # By the end of the file
 Import-Module ShellServer
 ~~~
 
 ## Known Issues
 
-- Git status brackets might give wrong values for now. ShellServer won't parse 'git status' command for it would threat performance, it deals with files directly.
-- Prompt might be unstructured on small window.
+- Git status brackets might give wrong values for now. ShellServer won't parse the 'git status' command because it would threaten performance. It deals with files directly.
+- Prompt might be unstructured on a small window.
