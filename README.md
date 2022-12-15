@@ -30,10 +30,10 @@ Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'
   
 ![Switch-Theme](./images/switch_theme.gif)
 Can take four arguments: all, system, terminal, and blue.  
-terminal: Toggles Windows Terminal default theme between 'Tango Dark' and 'Solarized Light'.  
-system: Toggles system wide Dark Mode.  
-blue: Toggles 'Blue light reduction'.  
-all: Same as not passing arguments. Do all the above.
+- terminal: Toggles Windows Terminal default theme between 'Tango Dark' and 'Solarized Light'.  
+- system: Toggles system wide Dark Mode.  
+- blue: Toggles 'Blue light reduction'.  
+- all: Same as not passing arguments. Do all the above.
   
 ### Searching history
 
@@ -61,7 +61,7 @@ options:
 ## Requirements
 
 - Python 3.10+
-- PowerShell 6.2 (I think)
+- PowerShell 6.2+ (I think)
 - Any NerdFont (I use MesloGS NF)
 
 ## Installation
@@ -81,6 +81,9 @@ pythonw -m shellserver  # note the 'w'
 # By the end of the file
 Import-Module ShellServer
 ~~~
+
+### Keep updated
+As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes
 
 ## Known Issues
 
