@@ -7,13 +7,9 @@ def gitinfo(
 
     git_dir = low.get_dot_git(target_path)
 
-    if git_dir is None:
-        return None, None
-
-    if low.exists_head(git_dir):
+    if git_dir is not None and low.exists_head(git_dir):
         branch = low.get_branch_on_head(git_dir)
-
-    if branch is None:
+    else:
         return None, None
 
     status = stringfy_status(high.status(git_dir))

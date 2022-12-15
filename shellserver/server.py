@@ -14,10 +14,11 @@ import subprocess
 import sys
 import threading
 
+from win_basic_tools.ls import Ls
+
 from . import gitinfo, histdb, theme
 from .cache import DirCache
 from .dispatch import Dispatcher
-from .ls import Ls
 from .style import style
 
 
@@ -118,23 +119,26 @@ def scan(entry, addr):  # Basically, main
             brackets.append(f'Status;{status}')
 
     target_dir = curdir if curdir == link else link
-    with os.scandir(target_dir) as directory:
-        for file in directory:
-            if (py_not not in brackets
-               and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
-                brackets.append(py_not)
+    try:
+        with os.scandir(target_dir) as directory:
+            for file in directory:
+                if (py_not not in brackets
+                   and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
+                    brackets.append(py_not)
 
-            for exe in exes_with_version:
-                notation = f'{map_lang_name[exe]};{exes_with_version[exe]}'
-                condition1 = notation not in brackets
-                if condition1 and file.name.endswith(map_suffix[exe]):
-                    brackets.append(notation)
+                for exe in exes_with_version:
+                    notation = f'{map_lang_name[exe]};{exes_with_version[exe]}'
+                    condition1 = notation not in brackets
+                    if condition1 and file.name.endswith(map_suffix[exe]):
+                        brackets.append(notation)
 
-            for exe in exes_to_search:  # those who don't have version
-                notation = map_lang_name[exe]
-                if (notation not in after_brackets
-                   and file.name.endswith(map_suffix[exe])):
-                    after_brackets.append(notation)
+                for exe in exes_to_search:  # those who don't have version
+                    notation = map_lang_name[exe]
+                    if (notation not in after_brackets
+                       and file.name.endswith(map_suffix[exe])):
+                        after_brackets.append(notation)
+    except OSError:
+        pass
 
     if home in curdir:
         curdir = '~' + curdir.removeprefix(home)
