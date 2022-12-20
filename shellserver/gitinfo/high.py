@@ -246,7 +246,4 @@ def status(git_dir: str) -> tuple[int, int, int, int]:
     # what remais can only be staged
     staged = len(tracked)
 
-    if low.exists_packs(git_dir):
-        return untracked, 0, 0, 0
-
     return untracked, staged, modified, deleted

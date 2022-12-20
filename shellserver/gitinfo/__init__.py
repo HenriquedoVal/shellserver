@@ -2,7 +2,8 @@ from . import low, high
 
 
 def gitinfo(
-    target_path: str
+    target_path: str,
+    queue
 ) -> tuple[str, tuple[int, int, int, int]]:
 
     git_dir = low.get_dot_git(target_path)
@@ -12,7 +13,13 @@ def gitinfo(
     else:
         return None, None
 
-    status = stringfy_status(high.status(git_dir))
+    if low.exists_packs(git_dir):
+        queue.put(git_dir)
+        res = queue.get()
+    else:
+        res = high.status(git_dir)
+
+    status = stringfy_status(res)
 
     return branch, status
 

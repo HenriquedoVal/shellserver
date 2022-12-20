@@ -22,7 +22,7 @@ def get_dot_git(target_path: str) -> str | None:
 
     parent = os.path.dirname(target_path)
     if parent == target_path:
-        return  # noqa
+        return
 
     return get_dot_git(parent)
 
@@ -175,3 +175,23 @@ def get_content_by_hash(git_dir: str, hash: str) -> bytes:
     # in blob we can take bytes or str
     # in tree, only bytes
     return zlib.decompress(content)
+
+
+def parse_git_status(data: str) -> tuple[int, int, int, int]:
+    """
+    Parses `git status -s` returning tuple of untracked, staged,
+    modified and deleted sums.
+    """
+
+    untracked = staged = modified = deleted = 0
+    for line in data.splitlines():
+        if line.startswith('??'):
+            untracked += 1
+        elif line.startswith('A'):
+            staged += 1
+        elif line.startswith(' M'):
+            modified += 1
+        elif line.startswith(' D'):
+            deleted += 1
+
+    return untracked, staged, modified, deleted

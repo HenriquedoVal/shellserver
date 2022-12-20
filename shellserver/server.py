@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
 from win_basic_tools.ls import Ls
 
@@ -22,7 +23,7 @@ from .dispatch import Dispatcher
 from .style import style
 
 
-def shell_manager(entry: str, addr=None) -> None:
+def shell_manager(entry: str, addr, queue) -> None:
     if entry.startswith('Init'):
         shell = entry.removeprefix('Init')
         dispatcher.register(addr, shell)
@@ -37,11 +38,21 @@ def shell_manager(entry: str, addr=None) -> None:
             pass
         if not clients:
             cache.finish()
-            # raising SystemExit would keep thread alive
+            queue.put('')
+
+            # queue.put(val, block=True) is the default.
+            # os._exit(0) will kill the queue before it's consumed
+            # and worker won't get killed
+            time.sleep(.1)
+
+            # raising SystemExit would keep thread that caputures
+            # 'WM_SAVE_YOURSELF' and darkdetect callback alive
             os._exit(0)
 
     elif entry == 'Kill':
+        queue.put('')
         cache.finish()
+        time.sleep(.1)
         os._exit(0)
 
 
@@ -93,7 +104,7 @@ def history_search(entry: str, addr) -> None:
     dispatcher.send_through(sock, res, addr)
 
 
-def scan(entry, addr):  # Basically, main
+def scan(entry, addr, queue):
     no_error = int(entry[0])
     curdir, width, duration = entry[1:].split(';')
     width = int(width)
@@ -111,7 +122,7 @@ def scan(entry, addr):  # Basically, main
     after_brackets = []
 
     git_flag = False
-    branch, status = gitinfo.gitinfo(curdir)
+    branch, status = gitinfo.gitinfo(curdir, queue)
     if branch is not None:
         git_flag = True
         brackets.append(f'Branch;{branch}')
@@ -153,16 +164,16 @@ def scan(entry, addr):  # Basically, main
     dispatcher.send_through(sock, prompt, addr)
 
 
-def mainloop():
+def mainloop(queue):
     while 1:
         entry, addr = sock.recvfrom(4096)
         entry = entry.decode()
 
         if entry.startswith('1'):
-            scan(entry[1:], addr)
+            scan(entry[1:], addr, queue)
 
         elif entry.startswith('2'):
-            shell_manager(entry[1:], addr)
+            shell_manager(entry[1:], addr, queue)
 
         elif entry.startswith('3'):
             zsearch(entry[1:], addr)
@@ -249,6 +260,3 @@ map_lang_name = {
 
 for exe in exes_to_search:
     threading.Thread(target=get_version, args=(exe,)).start()
-
-
-mainloop()

@@ -63,10 +63,11 @@ options:
 - Python 3.10+
 - PowerShell 6.2+ (I think)
 - Any NerdFont (I use MesloGS NF)
+- A xterm compatible terminal
 
 ## Installation
 
-Currently, ShellServer will work only in PowerShell on Windows. A few things must change to make it work on Linux, so make an Issue if you want to use it. There are plans to get it to [Xonsh](https://github.com/xonsh/xonsh)
+Currently, ShellServer will work only in PowerShell on Windows. A few things must change to make it work on Linux, so make an Issue if you want to use it.
 
 ~~~PowerShell
 > pip install shellserver  # or pip install --user shellserver
@@ -87,5 +88,5 @@ As many things might change in versions below 0.1.0, `pip install --upgrade shel
 
 ## Known Issues
 
-- Git status brackets might give wrong values for now. ShellServer won't parse the 'git status' command because it would threaten performance. It deals with files directly.
+- Small prompt lag if in git repository that uses packfiles.
 - Prompt might be unstructured on a small window.

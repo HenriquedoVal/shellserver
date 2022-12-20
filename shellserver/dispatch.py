@@ -14,10 +14,16 @@ class Dispatcher:
         self.addrs.update({addr: shell})
 
     def send_through(self, sock, data: str, addr: int):
-        # for now, treat every call as pwsh call
-        shell = self.addrs.get(addr, 'pwsh')
-        func = self.funcs[shell]
-        sock.sendto(func(data).encode(), addr)
+        shell = self.addrs.get(addr)
+        func = self.funcs.get(shell)
+
+        if func is not None:
+            data = func(data)
+
+        if len(data) > 60000:
+            data = data[:data.index('\n', 60000)] + '\nOverflow'
+
+        sock.sendto(data.encode(), addr)
 
     def _pwsh_func(self, data: str):
         return data.replace('$', '`$', -1).replace('\x1b', '`e', -1)
