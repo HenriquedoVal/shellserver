@@ -23,7 +23,9 @@ The compilers searched are GCC and G++.
   
 ### Better 'cd'  
 
-![p, pz](./images/p_pz.gif)  
+![p, pz](./images/p_pz.gif)
+- Tab completions works just fine.
+- With no arguments will behave just like 'cd'.
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
 ### Switching Theme
@@ -84,9 +86,23 @@ Import-Module ShellServer
 ~~~
 
 ### Keep updated
-As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes
+As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes.  
+The last v0.0.7 will work with the PowerShell ShellServer module 0.0.6.
 
 ## Known Issues
 
-- Small prompt lag if in git repository that uses packfiles.
-- Prompt might be unstructured on a small window.
+- Now we can parse git packfiles, but still can't resolve deltas. So it will fall back to use git when it's needed (faster but still experimental). Do `pythonw -m shellserver --use-git` in your profile to always use git.
+
+## Debugging
+
+Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
+  
+Attach a _stdout_ to the server and it will become pretty verbose when it sees a git repo.
+~~~
+shellserver kill
+# A message that the server is not responding and your prompt will be like before.
+python -m shellserver  # no w, blocking
+~~~
+Open another shell and walk to a git repo.  
+  
+The server can accept `--let-crash` argument to let errors propagate. `--use-git` will have preference over this.

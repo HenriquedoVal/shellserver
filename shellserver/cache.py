@@ -41,7 +41,7 @@ class DirCache:
             # that will capture WM_SAVE_YOURSELF
             if not self.flag:
                 self.flag = True
-                threading.Thread(target=self._signal_cap).start()
+                threading.Thread(target=self._signal_cap, daemon=True).start()
 
     def get(self, rel_path: str) -> str:
         for item in self.dirs:
@@ -87,16 +87,6 @@ class DirCache:
             self.finish()
             self.flag = False  # will make new threads possible
             raise SystemExit
-
-        # Save pid in temp file making easier to kill if
-        # server crash
-        try:
-            tmp_dir = os.environ['TMP'] + '/shellserver'
-            os.makedirs(tmp_dir, exist_ok=True)
-            with open(tmp_dir + '/shellserver_pid', 'w') as tmp_file:
-                print(os.getpid(), file=tmp_file)
-        except OSError:
-            pass
 
         root = tk.Tk()
         root.withdraw()

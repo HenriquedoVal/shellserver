@@ -17,13 +17,14 @@ import time
 
 from win_basic_tools.ls import Ls
 
-from . import gitinfo, histdb, theme
+from . import histdb, theme
+from .gitstatus import gitstatus
 from .cache import DirCache
 from .dispatch import Dispatcher
 from .style import style
 
 
-def shell_manager(entry: str, addr, queue) -> None:
+def shell_manager(entry: str, addr) -> None:
     if entry.startswith('Init'):
         shell = entry.removeprefix('Init')
         dispatcher.register(addr, shell)
@@ -38,22 +39,11 @@ def shell_manager(entry: str, addr, queue) -> None:
             pass
         if not clients:
             cache.finish()
-            queue.put('')
-
-            # queue.put(val, block=True) is the default.
-            # os._exit(0) will kill the queue before it's consumed
-            # and worker won't get killed
-            time.sleep(.1)
-
-            # raising SystemExit would keep thread that caputures
-            # 'WM_SAVE_YOURSELF' and darkdetect callback alive
-            os._exit(0)
+            raise SystemExit
 
     elif entry == 'Kill':
-        queue.put('')
         cache.finish()
-        time.sleep(.1)
-        os._exit(0)
+        raise SystemExit
 
 
 def zsearch(entry: str, addr: int) -> None:
@@ -104,7 +94,7 @@ def history_search(entry: str, addr) -> None:
     dispatcher.send_through(sock, res, addr)
 
 
-def scan(entry, addr, queue):
+def scan(entry, addr):
     no_error = int(entry[0])
     curdir, width, duration = entry[1:].split(';')
     width = int(width)
@@ -122,11 +112,11 @@ def scan(entry, addr, queue):
     after_brackets = []
 
     git_flag = False
-    branch, status = gitinfo.gitinfo(curdir, queue)
+    branch, status = gitstatus(curdir)
     if branch is not None:
         git_flag = True
         brackets.append(f'Branch;{branch}')
-        if status is not None:
+        if status:
             brackets.append(f'Status;{status}')
 
     target_dir = curdir if curdir == link else link
@@ -148,6 +138,8 @@ def scan(entry, addr, queue):
                     if (notation not in after_brackets
                        and file.name.endswith(map_suffix[exe])):
                         after_brackets.append(notation)
+    except PermissionError:
+        brackets.append('Error;Permission')
     except OSError:
         pass
 
@@ -164,16 +156,17 @@ def scan(entry, addr, queue):
     dispatcher.send_through(sock, prompt, addr)
 
 
-def mainloop(queue):
+def mainloop():
     while 1:
         entry, addr = sock.recvfrom(4096)
+        init = time.perf_counter()
         entry = entry.decode()
 
         if entry.startswith('1'):
-            scan(entry[1:], addr, queue)
+            scan(entry[1:], addr)
 
         elif entry.startswith('2'):
-            shell_manager(entry[1:], addr, queue)
+            shell_manager(entry[1:], addr)
 
         elif entry.startswith('3'):
             zsearch(entry[1:], addr)
@@ -189,6 +182,9 @@ def mainloop(queue):
 
         elif entry.startswith('7'):
             history_search(entry[1:], addr)
+
+        took = round(time.perf_counter() - init, 5)
+        print('Took:', took)
 
 
 os.makedirs(APP_HOME, exist_ok=True)

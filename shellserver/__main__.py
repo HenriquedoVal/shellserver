@@ -1,10 +1,10 @@
-if __name__ == "__main__":
-    import multiprocessing as mp
+from . import server
 
-    from . import server
-    from .gitinfo.git_exe import worker
+try:
+    server.mainloop()
+except Exception:
+    import traceback
+    from .__init__ import APP_HOME
 
-    queue = mp.Queue()
-    mp.Process(target=worker, args=(queue,)).start()
-
-    server.mainloop(queue)
+    with open(APP_HOME + '/traceback', 'w') as out:
+        print(traceback.format_exc(), file=out)

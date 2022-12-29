@@ -13,17 +13,21 @@ class Dispatcher:
     def register(self, addr: int, shell: str):
         self.addrs.update({addr: shell})
 
-    def send_through(self, sock, data: str, addr: int):
+    def send_through(self, sock, data: str, addr: tuple[str, int]):
         shell = self.addrs.get(addr)
         func = self.funcs.get(shell)
 
         if func is not None:
             data = func(data)
 
-        if len(data) > 60000:
-            data = data[:data.index('\n', 60000)] + '\nOverflow'
+        while data[60_000:]:
+            msg = '1' + data[:60_000]
+            sock.sendto(msg.encode(), addr)
+            data = data[60_000:]
 
-        sock.sendto(data.encode(), addr)
+        msg = '0' + data
+
+        sock.sendto(msg.encode(), addr)
 
     def _pwsh_func(self, data: str):
-        return data.replace('$', '`$', -1).replace('\x1b', '`e', -1)
+        return data.replace('$', '`$', -1)
