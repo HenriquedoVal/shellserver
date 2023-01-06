@@ -19,8 +19,7 @@ from win_basic_tools.ls import Ls
 
 from . import histdb, theme
 from .gitstatus import gitstatus
-from .cache import DirCache
-from .dispatch import Dispatcher
+from .classes import DirCache, Dispatcher
 from .style import style
 
 
@@ -107,6 +106,8 @@ def scan(entry, addr):
     curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
 
     link = os.path.realpath(curdir)
+    if curdir == 'Env:\\':
+        link = curdir
 
     brackets = []
     after_brackets = []
@@ -183,8 +184,9 @@ def mainloop():
         elif entry.startswith('7'):
             history_search(entry[1:], addr)
 
-        took = round(time.perf_counter() - init, 5)
-        print('Took:', took)
+        if '--verbose' in sys.argv:
+            took = round(time.perf_counter() - init, 5)
+            print(f'Took: {took}s')
 
 
 os.makedirs(APP_HOME, exist_ok=True)

@@ -87,21 +87,21 @@ Import-Module ShellServer
 
 ### Keep updated
 As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes.  
-The last v0.0.7 will work with the PowerShell ShellServer module 0.0.6.
+The last v0.0.8 will work with the PowerShell ShellServer module 0.0.6.
 
 ## Known Issues
 
-- Now we can parse git packfiles, but still can't resolve deltas. So it will fall back to use git when it's needed (faster but still experimental). Do `pythonw -m shellserver --use-git` in your profile to always use git.
+- Git status info: Now we can parse git packfiles, but still can't resolve deltas. So it will fall back to use git when it's needed (faster but still experimental). Do `pythonw -m shellserver --use-git` in your profile to always use git.
 
 ## Debugging
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   
-Attach a _stdout_ to the server and it will become pretty verbose when it sees a git repo.
+Attach a _stdout_ to the server, pass `--verbose` to it and it will give lot of info when it sees a git repo.
 ~~~
 shellserver kill
 # A message that the server is not responding and your prompt will be like before.
-python -m shellserver  # no w, blocking
+python -m shellserver --verbose  # no w, blocking
 ~~~
 Open another shell and walk to a git repo.  
   

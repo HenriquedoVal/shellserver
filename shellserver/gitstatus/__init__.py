@@ -1,3 +1,7 @@
+"""
+This submodule provides an inline view of 'git status'
+"""
+
 import sys
 
 from . import low, high
