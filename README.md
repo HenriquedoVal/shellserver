@@ -89,7 +89,7 @@ Import-Module ShellServer
 
 ### Keep updated
 As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes.  
-The last v0.0.8 will work with the PowerShell ShellServer module 0.0.6.
+v0.0.8+ will work with the PowerShell ShellServer module 0.0.6+.
 
 ## Debugging
 
