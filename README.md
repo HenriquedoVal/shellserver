@@ -5,6 +5,7 @@ It's a mix of [Starship](https://github.com/starship/starship) and [Zoxide](http
 On Starship, every 'Enter' keystroke spawns a new process, which may cause a lag between prompts.  
 Zoxide will raise a new process every time you call it.  
 ShellServer raises the server only in the first shell creation and will _communicate_ with your shell on every 'Enter' keystroke.  
+Fastness comes from not having spawning time, which seems to be way higher in Windows.  
   
 But if your hardware gives you a fluid shell experience using Starship, I recommend that you keep with it because it's way more customizable.  
 
@@ -26,6 +27,7 @@ The compilers searched are GCC and G++.
 ![p, pz](./images/p_pz.gif)
 - Tab completions works just fine.
 - With no arguments will behave just like 'cd'.
+- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
 ### Switching Theme
@@ -89,11 +91,9 @@ Import-Module ShellServer
 As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Upgrade-Module ShellServer` must be run both when one changes.  
 The last v0.0.8 will work with the PowerShell ShellServer module 0.0.6.
 
-## Known Issues
-
-- Git status info: Now we can parse git packfiles, but still can't resolve deltas. So it will fall back to use git when it's needed (faster but still experimental). Do `pythonw -m shellserver --use-git` in your profile to always use git.
-
 ## Debugging
+
+The git status info still experimental, do `pythonw -m shellserver --use-git` in your profile to always use git. 
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   

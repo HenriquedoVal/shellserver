@@ -24,17 +24,18 @@ def gitstatus(
     else:
         return None, None
 
+    obj = high.High(git_dir, branch)
     try:
         if '--use-git' in sys.argv:
             raise high.FallbackError
-        status = high.status(git_dir, branch)
+        status = obj.status()
 
     except high.FallbackError:
-        status = low.parse_git_status(git_dir)
+        status = obj.parse_git_status()
 
     except Exception:
         if '--let-crash' in sys.argv:
             raise
-        status = low.parse_git_status(git_dir)
+        status = obj.parse_git_status()
 
     return branch, status

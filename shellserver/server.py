@@ -9,6 +9,7 @@ try:
 except OSError:
     raise SystemExit
 
+import gc
 import os
 import subprocess
 import sys
@@ -21,6 +22,9 @@ from . import histdb, theme
 from .gitstatus import gitstatus
 from .classes import DirCache, Dispatcher
 from .style import style
+
+
+gc.disable()
 
 
 def shell_manager(entry: str, addr) -> None:
@@ -71,7 +75,7 @@ def list_directory(entry: str, addr: int) -> None:
     dispatcher.send_through(sock, ls.out.data, addr)
 
 
-def theme_manager(entry: str) -> None:
+def theme_manager(entry: str, addr) -> None:
     try:
         if entry in ('all', ''):
             theme.all()
@@ -121,28 +125,31 @@ def scan(entry, addr):
             brackets.append(f'Status;{status}')
 
     target_dir = curdir if curdir == link else link
+
     try:
-        with os.scandir(target_dir) as directory:
-            for file in directory:
-                if (py_not not in brackets
-                   and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
-                    brackets.append(py_not)
-
-                for exe in exes_with_version:
-                    notation = f'{map_lang_name[exe]};{exes_with_version[exe]}'
-                    condition1 = notation not in brackets
-                    if condition1 and file.name.endswith(map_suffix[exe]):
-                        brackets.append(notation)
-
-                for exe in exes_to_search:  # those who don't have version
-                    notation = map_lang_name[exe]
-                    if (notation not in after_brackets
-                       and file.name.endswith(map_suffix[exe])):
-                        after_brackets.append(notation)
+        directory = os.scandir(target_dir)
     except PermissionError:
         brackets.append('Error;Permission')
+        directory = tuple()
     except OSError:
-        pass
+        directory = tuple()
+
+    for file in directory:
+        if (py_not not in brackets
+           and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
+            brackets.append(py_not)
+
+        for exe in exes_with_version:
+            notation = f'{map_lang_name[exe]};{exes_with_version[exe]}'
+            condition1 = notation not in brackets
+            if condition1 and file.name.endswith(map_suffix[exe]):
+                brackets.append(notation)
+
+        for exe in exes_to_search:  # those who don't have version
+            notation = map_lang_name[exe]
+            if (notation not in after_brackets
+               and file.name.endswith(map_suffix[exe])):
+                after_brackets.append(notation)
 
     if home in curdir:
         curdir = '~' + curdir.removeprefix(home)
@@ -162,45 +169,15 @@ def mainloop():
         entry, addr = sock.recvfrom(4096)
         init = time.perf_counter()
         entry = entry.decode()
+        prot = entry[0]
 
-        if entry.startswith('1'):
-            scan(entry[1:], addr)
-
-        elif entry.startswith('2'):
-            shell_manager(entry[1:], addr)
-
-        elif entry.startswith('3'):
-            zsearch(entry[1:], addr)
-
-        elif entry.startswith('4'):
-            fzfsearch(entry[1:], addr)
-
-        elif entry.startswith('5'):
-            list_directory(entry[1:], addr)
-
-        elif entry.startswith('6'):
-            theme_manager(entry[1:])
-
-        elif entry.startswith('7'):
-            history_search(entry[1:], addr)
+        functionalities[prot](entry[1:], addr)
 
         if '--verbose' in sys.argv:
             took = round(time.perf_counter() - init, 5)
             print(f'Took: {took}s')
 
-
-os.makedirs(APP_HOME, exist_ok=True)
-
-clients = []
-cache = DirCache()
-dispatcher = Dispatcher()
-home = os.path.expanduser('~')
-
-py_version = sys.version
-py_version = py_version[:py_version.index(' ')]
-py_not = 'Python' + ';' + py_version  # notation
-
-exes_with_version = {}
+        gc.collect()
 
 
 #
@@ -255,6 +232,31 @@ map_lang_name = {
 #
 # Stop here
 #
+
+os.makedirs(APP_HOME, exist_ok=True)
+
+entries = map(str, range(1, 8))
+defined_functions = (
+    scan,
+    shell_manager,
+    zsearch,
+    fzfsearch,
+    list_directory,
+    theme_manager,
+    history_search
+)
+functionalities = dict(zip(entries, defined_functions))
+
+clients = []
+cache = DirCache()
+dispatcher = Dispatcher()
+home = os.path.expanduser('~')
+
+py_version = sys.version
+py_version = py_version[:py_version.index(' ')]
+py_not = 'Python' + ';' + py_version  # notation
+
+exes_with_version = {}
 
 for exe in exes_to_search:
     threading.Thread(target=get_version, args=(exe,)).start()
