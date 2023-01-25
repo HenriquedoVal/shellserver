@@ -27,7 +27,7 @@ The compilers searched are GCC and G++.
 ![p, pz](./images/p_pz.gif)
 - Tab completions works just fine.
 - With no arguments will behave just like 'cd'.
-- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`
+- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`  
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
 ### Switching Theme
