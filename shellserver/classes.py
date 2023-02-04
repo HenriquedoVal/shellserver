@@ -109,11 +109,13 @@ class Dispatcher:
     def register(self, addr: int, shell: str):
         self.addrs.update({addr: shell})
 
-    def send_through(self, sock, data: str, addr: tuple[str, int]):
-        shell = self.addrs.get(addr)
+    def send_through(self, sock, data: str,
+                     addr: tuple[str, int], *, prepare=True):
+
+        shell = self.addrs.get(addr, 'pwsh')
         func = self.funcs.get(shell)
 
-        if func is not None:
+        if prepare and func is not None:
             data = func(data)
 
         while data[60_000:]:

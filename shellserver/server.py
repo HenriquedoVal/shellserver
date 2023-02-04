@@ -9,6 +9,7 @@ try:
 except OSError:
     raise SystemExit
 
+
 import gc
 import os
 import subprocess
@@ -16,10 +17,10 @@ import sys
 import threading
 import time
 
-from win_basic_tools.ls import Ls
+from win_basic_tools import Ls
 
 from . import histdb, theme
-from .gitstatus import gitstatus
+from . import gitstatus
 from .classes import DirCache, Dispatcher
 from .style import style
 
@@ -34,6 +35,18 @@ def shell_manager(entry: str, addr) -> None:
         clients.append(1)
         completions = ';'.join(item[2] for item in cache.dirs)
         dispatcher.send_through(sock, completions, addr)
+
+    elif entry.startswith('Set'):
+        option = '--' + entry.removeprefix('Set')
+        if option == '--enable-git':
+            try:
+                sys.argv.remove('--disable-git')
+            except ValueError:
+                pass
+            return
+        if option == '--verbose':
+            sys.stdout = sys.__stdout__
+        sys.argv.append(option)
 
     elif entry == 'Exit':
         try:
@@ -50,9 +63,11 @@ def shell_manager(entry: str, addr) -> None:
 
 
 def zsearch(entry: str, addr: int) -> None:
-    entry = entry.strip('.' + SEP).lower()
+    # ./path/ -> path
+    # .path -> .path
+    entry = entry.strip(SEP).removeprefix('.' + SEP).lower()
     result = cache.get(entry)
-    dispatcher.send_through(sock, result, addr)
+    dispatcher.send_through(sock, result, addr, prepare=False)
 
 
 def fzfsearch(entry: str, addr: int) -> None:  # will receive two calls by 'pz'
@@ -85,7 +100,7 @@ def theme_manager(entry: str, addr) -> None:
             theme.night_light_change()
         elif entry == 'system':
             theme.system_change()
-    except:
+    except:  # noqa: bare except. I need to catch everything
         pass
 
 
@@ -97,34 +112,57 @@ def history_search(entry: str, addr) -> None:
     dispatcher.send_through(sock, res, addr)
 
 
+def _get_paths(curdir):
+    # Microsoft.PowerShell.Core\Registry::
+    curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\')
+    # os.realpath can handle \\wsl$\Distro
+    curdir = curdir.removeprefix('FileSystem::')
+
+    # Python 3.10+
+    # try:
+    #     link = os.path.realpath(curdir, strict=True)
+    # except OSError:
+    #     #  Env:, Function:, Alias:, ...
+    #     link = curdir
+
+    # Workaround. Can lead to errors
+    link = os.path.realpath(curdir)
+    if not os.path.exists(link):
+        link = curdir
+
+    target_dir = curdir if curdir == link else link
+
+    if home in curdir:
+        curdir = '~' + curdir.removeprefix(home)
+    if home in link:
+        link = '~' + link.removeprefix(home)
+
+    return curdir, link, target_dir
+
+
 def scan(entry, addr):
     no_error = int(entry[0])
     curdir, width, duration = entry[1:].split(';')
+
     width = int(width)
     duration = round(float(duration.replace(',', '.')), 1)
 
+    # must add before cleanup because Set-Location needs full 'path'
     if curdir != home:
         cache.add(curdir)
 
-    # Wsl
-    curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\FileSystem::')
-
-    link = os.path.realpath(curdir)
-    if curdir == 'Env:\\':
-        link = curdir
+    curdir, link, target_dir = _get_paths(curdir)
 
     brackets = []
     after_brackets = []
 
-    git_flag = False
-    branch, status = gitstatus(curdir)
+    branch, status = gitstatus.gitstatus(target_dir)
     if branch is not None:
-        git_flag = True
         brackets.append(f'Branch;{branch}')
         if status:
             brackets.append(f'Status;{status}')
 
-    target_dir = curdir if curdir == link else link
+    git_flag = bool(branch)
 
     try:
         directory = os.scandir(target_dir)
@@ -151,11 +189,6 @@ def scan(entry, addr):
                and file.name.endswith(map_suffix[exe])):
                 after_brackets.append(notation)
 
-    if home in curdir:
-        curdir = '~' + curdir.removeprefix(home)
-    if home in link:
-        link = '~' + link.removeprefix(home)
-
     prompt = style(
         curdir, link, git_flag, brackets,
         after_brackets, no_error, width, duration
@@ -176,6 +209,9 @@ def mainloop():
         if '--verbose' in sys.argv:
             took = round(time.perf_counter() - init, 5)
             print(f'Took: {took}s')
+
+        for mmap in gitstatus.packs.MAPPED_CACHE.values():
+            mmap.close()
 
         gc.collect()
 

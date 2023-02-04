@@ -1,18 +1,24 @@
+from __future__ import annotations
+
 """
 Module for functions with high level of abstraction
 and/or complexity.
 """
 
-from fnmatch import fnmatch
-import sys
+from fnmatch import fnmatchcase
+# fnmatch.fnmatch would unnecessarily replace path.sep
+# and incorrectly call ntpath.normcase
 
 from . import low
 from . import medium
 
 os = low.os  # os module
+sys = medium.sys
 
 n = '\n\n'
 if '--verbose' not in sys.argv:
+    # sending to stderr would break tests
+    # and this is a server, its not supposed to have stdout
     sys.stdout = None
 
 
@@ -22,7 +28,8 @@ class FallbackError(Exception):
 
 class High(medium.Medium):
 
-    __slots__ = 'git_dir', 'branch', 'fixed', 'ignored', 'packs_list'
+    __slots__ = ('git_dir', 'branch', 'fixed', 'ignored', 'packs_list'
+                 'untracked', 'staged', 'modified', 'deleted')
 
     def __init__(self, git_dir: str, branch: str) -> None:
         self.git_dir = git_dir
@@ -31,10 +38,20 @@ class High(medium.Medium):
         print('GIT_DIR:', git_dir)
         print('Branch', branch, end=n)
 
+        try:
+            self.set_index_tracked()
+        except medium.IndexTooBigError:
+            print("Index too big, Fallback.")
+            raise FallbackError
+
         self.set_split_ignored()
-        self.set_index_tracked()
         self.set_packs()
         print('List of packfiles:', self.packs_list, sep='\n', end=n)
+
+        self.untracked = 0
+        self.staged = 0
+        self.modified = 0
+        self.deleted = 0
 
     def status(self):
         """
@@ -42,11 +59,11 @@ class High(medium.Medium):
         return: str | None: String with the status, None if there's
                             nothing to report.
         """
-        untracked, staged, modified, deleted = self.get_full_status(
-            recurse_path=self.git_dir
-        )
+        self.get_full_status(recurse_path=self.git_dir)
 
-        return self.get_status_string((untracked, staged, modified, deleted))
+        return self.get_status_string(
+            (self.untracked, self.staged, self.modified, self.deleted)
+        )
 
     def get_full_status(
         self,
@@ -60,8 +77,6 @@ class High(medium.Medium):
         return: tuple: tuple of four integer numbers representing the number of
                         untracked, staged, modified and deleted files.
         """
-
-        untracked = staged = modified = deleted = 0
 
         tree_items_list = []
         # will happen only in very first call
@@ -79,7 +94,7 @@ class High(medium.Medium):
         try:
             directory = os.scandir(recurse_path)
         except PermissionError:
-            return untracked, staged, modified, deleted
+            return
 
         # index will have only the full path of blobs
         # trees have everything
@@ -87,29 +102,32 @@ class High(medium.Medium):
         for file in directory:
 
             if file.is_symlink():
-                # it would raise PermissionError when calling .is_file()
-                continue
+                is_file = True
+                # prevents PermissionError when calling .is_file()
+            else:
+                is_file = file.is_file()
 
-            relpath = os.path.relpath(
-                file.path, self.git_dir
+            relpath = file.path.removeprefix(
+                self.git_dir + '\\'
             ).replace('\\', '/', -1)
 
             # 100755(exe) is file
-            if file.is_file() and relpath in self.index_tracked:
-                # if file not in tree
-                if file.name not in (i[2] for i in tree_items_list):
-                    print('Staged:', file.name, "isn't under a commit.")
-                    staged += 1
-                    continue
-
-                # the check if file.name is file is done above
+            if is_file and relpath in self.index_tracked:
+                # get the item or it's staged
                 for item in tree_items_list:
                     if item[2] == file.name:
                         break
                 else:
+                    print('Staged:', file.name, "isn't under a commit.")
+                    self.staged += 1
                     continue
 
                 found_in_tree += 1
+
+                # syscall mtime == mtime
+                if file.stat().st_mtime == self.index_tracked[relpath]:
+                    continue
+
                 file_hash = self.get_hash_of_file(file.path)
                 file_hash_in_tree = item[1]
 
@@ -118,22 +136,31 @@ class High(medium.Medium):
                 elif file_hash_in_tree == self.get_hash_of_file(file.path,
                                                                 use_cr=True):
                     continue
-                modified += 1
+                self.modified += 1
 
                 print('Modified:', file.name,
                       f"has different sha1: {file_hash}")
 
-            elif file.name == '.git':
+            elif any(fnmatchcase(file.name, pattern)
+                     for pattern in self.ignored):
+                pass
+            elif any(fnmatchcase(relpath, pattern)
+                     for pattern in self.fixed):
                 pass
 
-            elif any(fnmatch(file.name, pattern) for pattern in self.ignored):
-                pass
-            elif any(fnmatch(relpath, pattern) for pattern in self.fixed):
-                pass
-
-            elif file.is_file():  # and relpath not in index
+            elif is_file:  # and relpath not in index
                 print('Untracked:', relpath)
-                untracked += 1
+                self.untracked += 1
+
+            elif file.name == '.git':
+                continue
+
+            # check if dir is a submodule
+            elif file.name in (
+                    i[2] for i in
+                    filter(lambda x: x[0] == '160000', tree_items_list)
+            ):
+                found_in_tree += 1
 
             # if dir isn't in tree_items_list
             elif file.name not in (
@@ -143,7 +170,7 @@ class High(medium.Medium):
                 # untrack must be setted only if any children is not ignored
                 result = self.handle_untracked_dir(file.path)
                 if result:
-                    untracked += result
+                    self.untracked += result
                     print('Untracked:', relpath)
 
             # is_dir and is in tree
@@ -156,19 +183,13 @@ class High(medium.Medium):
                 item_tuple = tuple(file_name_tuple)
                 tree_hash = item_tuple[0][1]
 
-                unt, sta, mod, del_ = self.get_full_status(
+                self.get_full_status(
                     file.path,
                     tree_hash
                 )
-                untracked += unt
-                staged += sta
-                modified += mod
-                deleted += del_
 
         # endfor
-        deleted += len(tree_items_list) - found_in_tree
-
-        return untracked, staged, modified, deleted
+        self.deleted += len(tree_items_list) - found_in_tree
 
     def handle_untracked_dir(self, dir_path: str) -> int:
         """
@@ -178,33 +199,39 @@ class High(medium.Medium):
                      0 if there was none.
         """
         try:
-            with os.scandir(dir_path) as sub_dir:
-
-                untracked = 0
-                for sub_file in sub_dir:
-                    if sub_file.is_dir():
-                        untracked += self.handle_untracked_dir(sub_file.path)
-
-                    if untracked:
-                        return 1
-
-                    if sub_file.is_file():
-                        if any(fnmatch(sub_file.name, pattern)
-                               for pattern in self.ignored):
-                            continue
-
-                        sub_relpath = os.path.relpath(
-                            sub_file.path, self.git_dir
-                        ).replace('\\', '/', -1)
-
-                        if any(fnmatch(sub_relpath, pattern)
-                               for pattern in self.fixed):
-                            continue
-                        return 1
-
-                return 0
+            directory = os.scandir(dir_path)
         except PermissionError:
             return 0
+
+        sub_dir = []
+        for file in directory:
+            if file.name == '.git':
+                return 0
+            sub_dir.append(file)
+
+        local_untracked = 0
+        for sub_file in sub_dir:
+            if sub_file.is_dir():
+                local_untracked += self.handle_untracked_dir(sub_file.path)
+
+            if local_untracked:
+                return 1
+
+            if sub_file.is_file():
+                if any(fnmatchcase(sub_file.name, pattern)
+                       for pattern in self.ignored):
+                    continue
+
+                sub_relpath = sub_file.path.removeprefix(
+                    self.git_dir + '\\'
+                ).replace('\\', '/', -1)
+
+                if any(fnmatchcase(sub_relpath, pattern)
+                       for pattern in self.fixed):
+                    continue
+                return 1
+
+        return 0
 
     def get_tree_items(self, last_cmmt: str) -> list | None:
         """

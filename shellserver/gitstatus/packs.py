@@ -1,8 +1,26 @@
+from __future__ import annotations
+
 """
 Low level operations on packfiles.
 """
 
+import mmap
 import zlib
+
+
+# dict[str path, mmap.mmap]
+MAPPED_CACHE = {}
+
+
+def _get_buffer(path) -> mmap.mmap:
+    if path in MAPPED_CACHE and not MAPPED_CACHE[path].closed:
+        return MAPPED_CACHE[path]
+
+    with open(path, 'rb') as raw:
+        m = mmap.mmap(raw.fileno(), 0, access=mmap.ACCESS_READ)
+
+    MAPPED_CACHE[path] = m
+    return m
 
 
 class Packs:
@@ -29,44 +47,51 @@ class Packs:
         layer1_idx = int(hash_[:2], 16) - 1
         found = False
 
-        with open(idx_path, 'rb') as file:
+        file = _get_buffer(idx_path)
+
+        if layer1_idx > 0:
             file.seek(8 + 4 * layer1_idx)
-            files_before = int.from_bytes(file.read(4))
-            file.seek(1028)
-            total_files = int.from_bytes(file.read(4))
+            files_before = int.from_bytes(file.read(4), 'big')
+        else:
+            files_before = 0
 
+        file.seek(1028)
+        total_files = int.from_bytes(file.read(4), 'big')
+
+        file.seek(
+            1032  # end of fanout_layer1
+            + 20 * files_before  # each will have 20 bytes
+        )
+
+        while not found:
+            file_hash_bytes = file.read(20)
+            file_hash = hex(
+                int.from_bytes(file_hash_bytes, 'big')
+            )[2:].zfill(40)
+
+            if hash_ == file_hash:
+                found = True
+                break
+
+            elif int(file_hash[:2], 16) > layer1_idx + 1:
+                break
+
+            elif file.tell() >= 1032 + 20 * total_files:
+                break
+
+            files_before += 1
+
+        if not rt_offset:
+            return found
+
+        if found:
             file.seek(
-                1032  # end of fanout_layer1
-                + 20 * files_before  # each will have 20 bytes
+                1032
+                + 20 * total_files  # jump layer2
+                + 4 * total_files  # jump layer3
+                + 4 * files_before
             )
-
-            while not found:
-                file_hash_bytes = file.read(20)
-                file_hash = hex(int.from_bytes(file_hash_bytes))[2:].zfill(40)
-
-                if hash_ == file_hash:
-                    found = True
-                    break
-
-                elif int(file_hash[:2], 16) > layer1_idx + 1:
-                    break
-
-                elif file.tell() >= 1032 + 20 * total_files:
-                    break
-
-                files_before += 1
-
-            if not rt_offset:
-                return found
-
-            if found:
-                file.seek(
-                    1032
-                    + 20 * total_files  # jump layer2
-                    + 4 * total_files  # jump layer3
-                    + 4 * files_before
-                )
-                return int.from_bytes(file.read(4))
+            return int.from_bytes(file.read(4), 'big')
 
     def get_content_by_offset(
             self, pack_path: str, offset: int
@@ -79,26 +104,29 @@ class Packs:
                               None it is a delta object
         """
 
-        with open(pack_path, 'rb') as file:
-            file.seek(offset)
+        file = _get_buffer(pack_path)
+        file.seek(offset)
 
-            int_ = int.from_bytes(file.read(1))
+        int_ = int.from_bytes(file.read(1), 'big')
+        binary = f'{int_:b}'.zfill(8)
+        type_ = binary[1:4]
+        obj_size = int_ & 0x0f
+        bit_shift = 4
+
+        if type_ == '110':  # delta type
+            return
+
+        msb = binary.startswith('1')
+        # size = binary[4:]
+
+        while msb:
+            int_ = int.from_bytes(file.read(1), 'big')
             binary = f'{int_:b}'.zfill(8)
-            type_ = binary[1:4]
-
-            if type_ == '110':  # delta type
-                return
-
+            obj_size |= (int_ & 0x7f) << bit_shift
+            bit_shift += 7
             msb = binary.startswith('1')
-            # size = binary[4:]
 
-            while msb:
-                int_ = int.from_bytes(file.read(1))
-                binary = f'{int_:b}'.zfill(8)
-                # size += binary[1:]
-                msb = binary.startswith('1')
-
-            return zlib.decompress(file.read())
+        return zlib.decompress(file.read(obj_size + 11))
 
     def get_idx_of_pack(self, pack: str) -> str:
         """

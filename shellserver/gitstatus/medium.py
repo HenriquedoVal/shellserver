@@ -1,12 +1,20 @@
+from __future__ import annotations
+
 """
 Module with functions considered of medium level of abstraction
 (functions here calls low functions and/or its siblings).
 """
 
+import sys
+
 from . import low
 from . import packs
 
 os = low.os
+
+
+class IndexTooBigError(Exception):
+    pass
 
 
 class Medium(low.Low, packs.Packs):
@@ -46,7 +54,7 @@ class Medium(low.Low, packs.Packs):
         """
         index_path = os.path.join(self.git_dir, '.git/index')
         if not os.path.exists(index_path):
-            self.index_tracked = []
+            self.index_tracked = tuple()
             return
 
         with open(index_path, 'rb') as f:
@@ -56,22 +64,25 @@ class Medium(low.Low, packs.Packs):
                 while True:
                     b = f.read(1)
                     if b == '' or b == delim:
-                        return b"".join(ret).decode("utf-8", "replace")
+                        return b"".join(ret).decode()
 
                     ret.append(b)
 
             constant = f.read(4)
-            version = int.from_bytes(f.read(4))
+            version = int.from_bytes(f.read(4), 'big')
             if constant != b'DIRC' or version not in (2, 3):
                 self.index_tracked = None
 
-            entries = int.from_bytes(f.read(4))
-            res = []
+            entries = int.from_bytes(f.read(4), 'big')
+            res = {}
 
             for entry in range(entries):
-                f.read(60)
+                f.read(8)
+                mtime = int.from_bytes(f.read(4), 'big')
+                mtime += int.from_bytes(f.read(4), 'big') / 1000000000
+                f.read(44)
 
-                flags = int.from_bytes(f.read(2))
+                flags = int.from_bytes(f.read(2), 'big')
                 namelen = flags & 0xfff
                 extended = flags & (0b0100_0000 << 8)
 
@@ -82,13 +93,17 @@ class Medium(low.Low, packs.Packs):
                     entrylen += 2
 
                 if namelen < 0xfff:
-                    name = f.read(namelen).decode("utf-8", "replace")
+                    name = f.read(namelen).decode()
                     entrylen += namelen
                 else:
                     name = readStrUntil('\x00')
                     entrylen += 1
 
-                res.append(name)
+                res[name] = mtime
+
+                give_up = '--wait' not in sys.argv
+                if give_up and len(res) > 1000:
+                    raise IndexTooBigError
 
                 padlen = (8 - (entrylen % 8)) or 8
                 f.read(padlen)

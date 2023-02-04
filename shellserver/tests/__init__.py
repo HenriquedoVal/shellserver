@@ -5,12 +5,19 @@ import subprocess
 import tempfile
 import unittest
 
-from .__init__ import gitstatus
-from . import low
-from . import medium
-from . import high
+from ..gitstatus.__init__ import gitstatus
+from ..gitstatus import low
+from ..gitstatus import medium
+from ..gitstatus import high
+from ..gitstatus.packs import MAPPED_CACHE
 
 
+def clear_cache():
+    for mmap in MAPPED_CACHE.values():
+        mmap.close()
+
+
+# maybe will be relevant:    
 def popen(cmd: str) -> bytes:
     out, err = subprocess.Popen(
         cmd,
@@ -307,6 +314,7 @@ class TestGitstatusLowPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        clear_cache()
         os.system(f'rmdir /s /q {cls.temp}')
 
     '''
@@ -506,6 +514,7 @@ class TestGitstatusMediumPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        clear_cache()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_packed_get_packs(self):
@@ -577,6 +586,7 @@ class TestGitstatusPacksPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        clear_cache()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_search_idx(self):
@@ -626,6 +636,7 @@ class TestGitstatusHighStatus(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        clear_cache()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status(self):

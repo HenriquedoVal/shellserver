@@ -1,5 +1,6 @@
 #
 # Set port to use. It shouldn't have collisions as Udp, but user might want to change it.
+# Also will have to change in __init__.py
 #
 
 # if you change the port number here, you must change below too
@@ -19,7 +20,7 @@ Register-EngineEvent PowerShell.Exiting -action {
 $LocalHost = '127.0.0.1'
 $Encoder = [System.Text.Encoding]::UTF8
 $Sock = New-Object System.Net.Sockets.UdpClient
-$Sock.Client.ReceiveTimeout = 1500
+$Sock.Client.ReceiveTimeout = 3000
 $Sock.Connect($LocalHost, $Port)
 
 $Address = [System.Net.IpAddress]::Parse($LocalHost)
@@ -121,6 +122,7 @@ function pz {
       $answer = Write-Output $response | fzf --height=~20 --layout=reverse
     }
 
+  # send the user choice to server to adjust precedence
   $Sock.Send($Encoder.GetBytes('4' + $answer)) > $nul
   Set-Location $answer
 }
@@ -178,6 +180,28 @@ function Search-History {
 
   $response = receiver
   $ExecutionContext.InvokeCommand.ExpandString($response)
+}
+
+
+function Set-ServerTimeout {
+  param($arg)
+  $Sock.Client.ReceiveTimeout = $arg
+}
+
+
+function Set-ServerOpt {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [ArgumentCompletions(
+      'enable-git', 'disable-git', 'use-git', 'wait', 'verbose', 'let-crash'
+    )]
+    $Option
+  )
+
+  $Buffer = $Encoder.GetBytes("2Set$Option")
+  $Sock.Send($Buffer) > $nul
+
 }
 
 
@@ -304,4 +328,4 @@ $scriptBlock = {
 
 Register-ArgumentCompleter -CommandName p -ParameterName path -ScriptBlock $scriptBlock
 
-Export-ModuleMember -Function @("p", "pz", "pls", "ll", "la", "Switch-Theme", "Search-History")
+Export-ModuleMember -Function @("p", "pz", "pls", "ll", "la", "Switch-Theme", "Search-History", "Set-ServerTimeout", "Set-ServerOpt")

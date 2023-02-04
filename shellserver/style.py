@@ -86,14 +86,13 @@ def resolve_clocks(duration: float, width: int) -> str:
     return res
 
 
-# maybe will be relevant:    
 def style(
     cwd: str,
     link: str,
-    git: int | bool,
+    git: int,  # | bool,
     brackets: list,
     after: list,
-    no_error: int | bool,
+    no_error: int,  # | bool,
     width: int,
     duration: float
 ) -> str:

@@ -25,9 +25,8 @@ The compilers searched are GCC and G++.
 ### Better 'cd'  
 
 ![p, pz](./images/p_pz.gif)
-- Tab completions works just fine.
-- With no arguments will behave just like 'cd'.
 - `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`  
+  
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
 ### Switching Theme
@@ -64,14 +63,14 @@ options:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+ or latest [Pypy](https://www.pypy.org/)(still slower than Python 3.11)
 - PowerShell 6.2+ (I think)
 - Any NerdFont (I use MesloGS NF)
 - A xterm compatible terminal
 
 ## Installation
 
-Currently, ShellServer will work only in PowerShell on Windows. A few things must change to make it work on Linux, so make an Issue if you want to use it.
+Currently, ShellServer will work only in PowerShell on Windows.
 
 ~~~PowerShell
 > pip install shellserver  # or pip install --user shellserver
@@ -106,3 +105,17 @@ python -m shellserver --verbose  # no w, blocking
 Open another shell and walk to a git repo.  
   
 The server can accept `--let-crash` argument to let errors propagate. `--use-git` will have preference over this.
+
+There are also: 
+- `--disable-git`
+- `--wait`: We will use our 'gitstatus' subpackage for repos up to 1000 index entries. Will use git otherwise, unless this flag is set.
+
+On Pwsh module:
+- `Set-ServerTimeout`: arg in ms. 
+- `Set-ServerOpt`: Set options in runtime:
+    - enable-git
+    - disable-git
+    - use-git: Use git.exe for git status info
+    - wait: Use 'gitstatus' subpackage no matter how big is repo
+    - verbose
+    - let-crash: At this point it's probably useless

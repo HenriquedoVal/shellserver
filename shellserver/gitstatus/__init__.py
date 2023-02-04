@@ -17,6 +17,9 @@ def gitstatus(
     return: tuple of two strings: The branch and the status of it.
     """
 
+    if '--disable-git' in sys.argv:
+        return None, None
+
     git_dir = low.get_dot_git(target_path)
 
     if git_dir is not None and low.exists_head(git_dir):
@@ -24,18 +27,22 @@ def gitstatus(
     else:
         return None, None
 
-    obj = high.High(git_dir, branch)
     try:
         if '--use-git' in sys.argv:
             raise high.FallbackError
+        obj = high.High(git_dir, branch)
         status = obj.status()
 
     except high.FallbackError:
+        obj = low.Low()
+        obj.git_dir = git_dir
         status = obj.parse_git_status()
 
     except Exception:
         if '--let-crash' in sys.argv:
             raise
+        obj = low.Low()
+        obj.git_dir = git_dir
         status = obj.parse_git_status()
 
     return branch, status

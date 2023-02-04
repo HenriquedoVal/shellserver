@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Module with functions considered to be of low level,
 that is, functions that doesn't call its siblings.
@@ -295,7 +297,7 @@ class Low:
             start = stop + 21  # next start
 
             hexa = data[stop + 1:start]
-            hexa = f'{int.from_bytes(hexa):x}'.zfill(40)
+            hexa = f'{int.from_bytes(hexa, "big"):x}'.zfill(40)
 
             res.append((type_.decode(), hexa, filename.decode()))
 
