@@ -1,2 +1,2 @@
 darkdetect>=0.7.1
-win-basic-tools>=0.3.1
+win-basic-tools>=0.3.2
