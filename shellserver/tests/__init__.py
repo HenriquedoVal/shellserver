@@ -3,13 +3,16 @@ import random
 import string
 import subprocess
 import tempfile
+import time
 import unittest
 
 from ..gitstatus.__init__ import gitstatus
 from ..gitstatus import low
-from ..gitstatus import medium
 from ..gitstatus import high
 from ..gitstatus.packs import MAPPED_CACHE
+
+
+obj = high.High()
 
 
 def clear_cache():
@@ -17,7 +20,6 @@ def clear_cache():
         mmap.close()
 
 
-# maybe will be relevant:    
 def popen(cmd: str) -> bytes:
     out, err = subprocess.Popen(
         cmd,
@@ -67,17 +69,28 @@ class TestGitstatusLowEmpty(unittest.TestCase):
         branch = low.get_branch_on_head(self.temp)
         self.assertEqual(branch, 'main')
 
+
+class TestGitstatusLowEmpty2(unittest.TestCase):
+    """
+    Tests for low module with just initialized git repo
+    whithout changing branch name
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        os.system(f'rmdir /s /q {cls.temp}')
+
     def test_empty_get_info_packs_content(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_info_packs_content()
         self.assertEqual(tested, [])
 
     def test_empty_get_gitignore_content(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_gitignore_content()
         self.assertEqual(tested, [])
 
@@ -88,23 +101,14 @@ class TestGitstatusLowEmpty(unittest.TestCase):
         self.assertEqual(tested, [text])
 
     def test_empty_get_last_commit_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_last_commit_loose()
         self.assertIsNone(tested)
 
     def test_empty_get_info_refs_content(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_info_refs_content()
         self.assertEqual(tested, [])
 
     def test_empty_get_exclude_content(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_exclude_content()
         exc = os.path.join(self.temp, '.git/info/exclude')
         with open(exc) as f:
@@ -120,16 +124,10 @@ class TestGitstatusLowEmpty(unittest.TestCase):
     '''
 
     def test_empty_get_content_by_hash_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.get_content_by_hash_loose('any')
         self.assertIsNone(tested)
 
     def test_empty_get_tree_hash_from_commit(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         # supose and cmmt obj
         tree_hash = b'0123456789abcdf'
         cmmt_obj = b'may be more things tree ' + tree_hash + b'\n'
@@ -137,9 +135,6 @@ class TestGitstatusLowEmpty(unittest.TestCase):
         self.assertEqual(tested, tree_hash.decode())
 
     def test_empty_get_status_string(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         sts = (0, 0, 0, 0)
         tested = obj.get_status_string(sts)
         self.assertIsNone(tested)
@@ -179,9 +174,6 @@ class TestGitstatusLowEmpty(unittest.TestCase):
         self.assertEqual(tested, local)
 
     def test_empty_parse_git_status(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'main'
         tested = obj.parse_git_status()
         # test_get_gitignore_content created .gitignore
         self.assertEqual(tested, '??1')
@@ -202,6 +194,7 @@ class TestGitstatusLowLoose(unittest.TestCase):
             file.write(get_random_string().encode() + b'\r\n')
         popen(f'git -C {cls.temp} add .')
         popen(f'git -C {cls.temp} commit -m "some"')
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
@@ -222,9 +215,6 @@ class TestGitstatusLowLoose(unittest.TestCase):
     '''
 
     def test_loose_get_last_commit_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_last_commit_loose()
         master = os.path.join(self.temp, '.git/refs/heads/master')
         with open(master) as file:
@@ -233,9 +223,6 @@ class TestGitstatusLowLoose(unittest.TestCase):
 
     def test_loose_get_info_refs_content(self):
         # should only exists if there are packed files
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_info_refs_content()
         self.assertEqual(tested, [])
 
@@ -248,9 +235,6 @@ class TestGitstatusLowLoose(unittest.TestCase):
     '''
 
     def test_loose_get_hash_of_file(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         file_hash = obj.get_hash_of_file(self.temp + '/file.txt')
         git_hash = popen(
             f'git -C {self.temp} hash-object file.txt'
@@ -266,9 +250,6 @@ class TestGitstatusLowLoose(unittest.TestCase):
         self.assertEqual(file_hash, git_hash)
 
     def test_loose_get_content_by_hash_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         file_hash = obj.get_hash_of_file(self.temp + '/file.txt')
         tested = obj.get_content_by_hash_loose(file_hash)
         local = popen(
@@ -288,9 +269,6 @@ class TestGitstatusLowLoose(unittest.TestCase):
     '''
 
     def test_loose_parse_git_status(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.parse_git_status()
         self.assertEqual(tested, '')
 
@@ -311,6 +289,7 @@ class TestGitstatusLowPacked(unittest.TestCase):
         popen(f'git -C {cls.temp} add .')
         popen(f'git -C {cls.temp} commit -m "some"')
         popen(f'git -C {cls.temp} gc')
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
@@ -332,16 +311,10 @@ class TestGitstatusLowPacked(unittest.TestCase):
     '''
 
     def test_packed_get_last_commit_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_last_commit_loose()
         self.assertIsNone(tested)
 
     def test_packed_get_info_refs_content(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_info_refs_content()
         refs = os.path.join(self.temp, '.git/info/refs')
         with open(refs) as file:
@@ -358,9 +331,6 @@ class TestGitstatusLowPacked(unittest.TestCase):
     '''
 
     def test_packed_get_content_by_hash_loose(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         file_hash = obj.get_hash_of_file(self.temp + '/file.txt')
         tested = obj.get_content_by_hash_loose(file_hash)
         self.assertIsNone(tested)
@@ -377,9 +347,6 @@ class TestGitstatusLowPacked(unittest.TestCase):
     '''
 
     def test_packed_parse_git_status(self):
-        obj = low.Low()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.parse_git_status()
         self.assertEqual(tested, '')
 
@@ -393,37 +360,26 @@ class TestGitstatusMediumEmpty(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
         popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_empty_get_packs(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
         self.assertEqual(obj.packs_list, [])
 
     def test_empty_get_content_by_hash_packed(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
         tested = obj.get_content_by_hash_packed('anyabcdf01234')
         self.assertIsNone(tested)
 
     def test_empty_get_last_commit_packed(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_last_commit_packed()
         self.assertIsNone(tested)
 
     def test_empty_get_last_commit(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_last_commit_hash()
         self.assertIsNone(tested)
 
@@ -443,6 +399,7 @@ class TestGitstatusMediumLoose(unittest.TestCase):
             file.write(get_random_string().encode() + b'\r\n')
         popen(f'git -C {cls.temp} add .')
         popen(f'git -C {cls.temp} commit -m "some"')
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
@@ -460,9 +417,6 @@ class TestGitstatusMediumLoose(unittest.TestCase):
     """
 
     def test_loose_get_last_commit(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         tested = obj.get_last_commit_hash()
         low_tested = obj.get_last_commit_loose()
         self.assertEqual(tested, low_tested)
@@ -479,9 +433,6 @@ class TestGitstatusMediumLoose(unittest.TestCase):
         ni(self.temp, 'dir/file')
         popen(f'git -C {self.temp} add .')
 
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_index_tracked()
         tested = obj.index_tracked
 
@@ -511,6 +462,7 @@ class TestGitstatusMediumPacked(unittest.TestCase):
         popen(f'git -C {cls.temp} add .')
         popen(f'git -C {cls.temp} commit -m "some"')
         popen(f'git -C {cls.temp} gc')
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
@@ -518,24 +470,17 @@ class TestGitstatusMediumPacked(unittest.TestCase):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_packed_get_packs(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
 
         packs = os.path.join(self.temp, '.git/objects/pack')
-        local = [packs + '\\' + i
+        local = [packs.lower() + '\\' + i
                  for i in os.listdir(packs)
                  if i.endswith('pack')]
         tested = obj.packs_list
         self.assertEqual(tested, local)
 
     def test_packed_get_content_by_hash_packed(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
-
         file_hash = obj.get_hash_of_file(self.temp + '/file.txt')
         tested = obj.get_content_by_hash_packed(file_hash)
         local = popen(f'git -C {self.temp} cat-file -p {file_hash}')
@@ -543,9 +488,6 @@ class TestGitstatusMediumPacked(unittest.TestCase):
 
     def test_packed_get_last_commit_packed(self):
         # I can't test this with a git background
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
 
         tested = obj.get_last_commit_packed()
@@ -556,9 +498,6 @@ class TestGitstatusMediumPacked(unittest.TestCase):
         self.assertIn(tested, refs[0])
 
     def test_packed_get_last_commit(self):
-        obj = medium.Medium()
-        obj.git_dir = self.temp
-        obj.branch = 'master'
         obj.set_packs()
 
         tested = obj.get_last_commit_hash()
@@ -583,6 +522,8 @@ class TestGitstatusPacksPacked(unittest.TestCase):
         popen(f'git -C {cls.temp} add .')
         popen(f'git -C {cls.temp} commit -m "some"')
         popen(f'git -C {cls.temp} gc')
+        obj.init(cls.temp, 'master')
+        obj.set_packs()
 
     @classmethod
     def tearDownClass(cls):
@@ -590,7 +531,6 @@ class TestGitstatusPacksPacked(unittest.TestCase):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_search_idx(self):
-        obj = high.High(self.temp, 'master')
         idx_path = obj.get_idx_of_pack(
             obj.packs_list[0]
         )
@@ -603,7 +543,6 @@ class TestGitstatusPacksPacked(unittest.TestCase):
         self.assertTrue(tested)
 
     def test_get_content_by_offset(self):
-        obj = high.High(self.temp, 'master')
         pack = obj.packs_list[0]
         idx_path = obj.get_idx_of_pack(pack)
 
@@ -632,7 +571,7 @@ class TestGitstatusHighStatus(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
         popen(f'git init {cls.temp}')
-        cls.branch = low.get_branch_on_head(cls.temp)
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
@@ -640,7 +579,6 @@ class TestGitstatusHighStatus(unittest.TestCase):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status(self):
-        obj = high.High(self.temp, 'master')
         self.assertIsNone(obj.status())
 
         file_path = self.temp + '/file.txt'
@@ -654,28 +592,24 @@ class TestGitstatusHighStatus(unittest.TestCase):
         popen(f'git -C {self.temp} add .')
         git = obj.parse_git_status()
         self.assertEqual(git, 'A1')
-        obj = high.High(self.temp, 'master')
         tested = obj.status()
         self.assertEqual(tested, '+1')
 
         popen(f'git -C {self.temp} commit -m "some"')
         git = obj.parse_git_status()
         self.assertEqual(git, '')
-        obj = high.High(self.temp, 'master')
         self.assertIsNone(obj.status())
 
         with open(file_path, 'a') as file:
             file.write(get_random_string())
         git = obj.parse_git_status()
         self.assertEqual(git, 'M1')
-        obj = high.High(self.temp, 'master')
         tested = obj.status()
         self.assertEqual(tested, 'm1')
 
         os.remove(file_path)
         git = obj.parse_git_status()
         self.assertEqual(git, 'D1')
-        obj = high.High(self.temp, 'master')
         tested = obj.status()
         self.assertEqual(tested, 'x1')
 
@@ -683,14 +617,37 @@ class TestGitstatusHighStatus(unittest.TestCase):
         popen(f'git -C {self.temp} commit -m "other"')
         git = obj.parse_git_status()
         self.assertEqual(git, '')
-        obj = high.High(self.temp, 'master')
         self.assertIsNone(obj.status())
 
         popen(f'git -C {self.temp} gc')
         git = obj.parse_git_status()
         self.assertEqual(git, '')
-        obj = high.High(self.temp, 'master')
         self.assertIsNone(obj.status())
+
+
+class TestGitstatusHighStatusTDD(unittest.TestCase):
+    """
+    Another test for status
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        clear_cache()
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_status(self):
+        ni(self.temp, 'some/file.txt')
+        popen(f'git -C {self.temp} add .')
+        git = obj.parse_git_status()
+        self.assertEqual(git, 'A1')
+        tested = obj.status()
+        self.assertEqual(tested, '+1')
 
 
 class TestGitstatusHighStatusIgnore(unittest.TestCase):
@@ -702,14 +659,13 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
         popen(f'git init {cls.temp}')
-        cls.branch = low.get_branch_on_head(cls.temp)
+        obj.init(cls.temp, 'master')
 
     @classmethod
     def tearDownClass(cls):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_ignore(self):
-        obj = high.High(self.temp, 'master')
         gitignore = self.temp + '/.gitignore'
         with open(gitignore, 'w') as ignore:
             tested = obj.status()
@@ -720,7 +676,6 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
             ni(self.temp, 'ignored_dir/some')
             ignore.write('ignored_dir\n')
             ignore.flush()
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?1')
             git = obj.parse_git_status()
@@ -729,7 +684,6 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
             ni(self.temp, 'other/ignored.txt')
             ignore.write('other/ign\n')
             ignore.flush()
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?2')
             git = obj.parse_git_status()
@@ -737,14 +691,12 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
 
             ignore.write('other/ign*\n')
             ignore.flush()
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?1')
             git = obj.parse_git_status()
             self.assertEqual(git, '??1')
 
             ni(self.temp, 'some/ignored.txt')
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?2')
             git = obj.parse_git_status()
@@ -752,22 +704,6 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
 
             ignore.write('some\n')
             ignore.flush()
-            obj = high.High(self.temp, 'master')
-            tested = obj.status()
-            self.assertEqual(tested, '?1')
-            git = obj.parse_git_status()
-            self.assertEqual(git, '??1')
-
-            ni(self.temp, 'a/b/c/d')
-            obj = high.High(self.temp, 'master')
-            tested = obj.status()
-            self.assertEqual(tested, '?2')
-            git = obj.parse_git_status()
-            self.assertEqual(git, '??2')
-
-            ignore.write('a/**/d\n')
-            ignore.flush()
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?1')
             git = obj.parse_git_status()
@@ -776,7 +712,6 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
             ni(self.temp, 'interrog.txt')
             ignore.write('inter???.txt')
             ignore.flush()
-            obj = high.High(self.temp, 'master')
             tested = obj.status()
             self.assertEqual(tested, '?1')
             git = obj.parse_git_status()
@@ -807,3 +742,102 @@ class TestGitstatusInit(unittest.TestCase):
         ni(self.temp, 'file.txt')
         tested = gitstatus(self.temp)
         self.assertEqual(tested, ('main', '?1'))
+
+
+class TestGitstatusIgnoreTDD(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_status_ignore(self):
+        gitignore = self.temp + '/.gitignore'
+        with open(gitignore, 'w') as ignore:
+            # case of string
+            ignore.write('Third\n')
+            ignore.flush()
+        ni(self.temp, 'third/file')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??1')
+        tested = obj.status()
+        self.assertEqual(tested, '?1')
+
+
+class TestGitstatusIgnoreTDD2(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_status_ignore(self):
+        gitignore = self.temp + '/.gitignore'
+        with open(gitignore, 'w') as ignore:
+            # trailing slash
+            ignore.write('some/\n')
+            ignore.flush()
+        ni(self.temp, 'some/file.txt')
+        ni(self.temp, 'other/some')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??2')
+        tested = obj.status()
+        self.assertEqual(tested, '?2')
+
+
+class TestGitstatusIgnoreTDD3(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_status_ignore(self):
+        gitignore = self.temp + '/.gitignore'
+        with open(gitignore, 'w') as ignore:
+            ni(self.temp, 'a/b/c/d')
+            ignore.write('a/**/d\n')
+            ignore.flush()
+
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??1')
+        tested = obj.status()
+        self.assertEqual(tested, '?1')
+
+
+class TestGitstatusIgnoreTDD4(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_modified_after_commit(self):
+        gitignore = self.temp + '/.gitignore'
+        with open(gitignore, 'w') as ignore:
+            ignore.write('anything')
+        popen(f'git -C {self.temp} add .')
+        popen(f'git -C {self.temp} commit -m "other"')
+        with open(gitignore, 'a') as ignore:
+            ignore.write('anything')
+        popen(f'git -C {self.temp} add .')
+        git = obj.parse_git_status()
+        self.assertEqual(git, 'M1')
+        tested = obj.status()
+        self.assertEqual(tested, 'm1')

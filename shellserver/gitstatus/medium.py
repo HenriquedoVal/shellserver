@@ -99,10 +99,10 @@ class Medium(low.Low, packs.Packs):
                     name = readStrUntil('\x00')
                     entrylen += 1
 
-                res[name] = mtime
+                res[name.lower()] = mtime
 
                 give_up = '--wait' not in sys.argv
-                if give_up and len(res) > 1000:
+                if give_up and len(res) > 2500:
                     raise IndexTooBigError
 
                 padlen = (8 - (entrylen % 8)) or 8
@@ -119,23 +119,20 @@ class Medium(low.Low, packs.Packs):
         """
         raw_ignored = self.get_exclude_content()
         raw_ignored += self.get_gitignore_content()
+        raw_ignored = [
+            i.strip().lower()
+            for i in raw_ignored
+            if not i.strip().startswith('#')
+        ]
 
-        # raw_ignored will become the the 'fixed', return[0]
-        every_time = []
-        counter = 0
-        while counter < len(raw_ignored):
-            if raw_ignored[counter].strip().startswith('#'):
-                del raw_ignored[counter]
-                continue
+        ignored = [
+            i for i in raw_ignored
+            if '/' not in i
+        ]
 
-            if '/' not in raw_ignored[counter]:
-                every_time.append(raw_ignored[counter])
-                del raw_ignored[counter]
-                continue
+        fixed = [i for i in raw_ignored if i not in ignored]
 
-            counter += 1
-
-        self.fixed, self.ignored = raw_ignored, every_time
+        self.fixed, self.ignored = fixed, ignored
 
     def get_content_by_hash_packed(self, hash_: str) -> bytes | None:
         """

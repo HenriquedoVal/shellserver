@@ -64,9 +64,8 @@ def resolve_duration(seconds: float) -> str:
             res += f'{val}{unit}'
         elif unit == 's' and 'h' in res:
             break
-        else:
-            if val and ((unit == 's' and (val > 2 or res)) or unit != 's'):
-                res += f'{int(val)}{unit}'
+        elif val and ((unit == 's' and (val > 2 or res)) or unit != 's'):
+            res += f'{int(val)}{unit}'
 
     return res
 
@@ -86,19 +85,7 @@ def resolve_clocks(duration: float, width: int) -> str:
     return res
 
 
-def style(
-    cwd: str,
-    link: str,
-    git: int,  # | bool,
-    brackets: list,
-    after: list,
-    no_error: int,  # | bool,
-    width: int,
-    duration: float
-) -> str:
-
-    result = ''
-
+def get_cwd_and_link(cwd, link):
     equal = cwd == link
 
     if cwd == '~':
@@ -111,7 +98,7 @@ def style(
     cwd = hide_first_dirs(cwd, 5)
     cwd = reduce_big_path_names(cwd, 25)
 
-    result += colors_map['Cwd'] + cwd + colors_map['Reset'] + ' '
+    result = colors_map['Cwd'] + cwd + colors_map['Reset'] + ' '
 
     if not equal:
         link = hide_first_dirs(link, 5)
@@ -125,11 +112,11 @@ def style(
             + ' '
         )
 
-    if git:
-        result += (
-            colors_map['Git'] + symbols_map['Git'] + colors_map['Reset'] + ' '
-        )
+    return result
 
+
+def get_brackets(brackets, after):
+    result = ''
     for item in brackets:
         symbol, text = item.split(';')
 
@@ -145,21 +132,51 @@ def style(
 
     # remove last empty space, new line might be in there
     result = result.strip()
+    return result
+
+
+def style(
+    cwd: str,
+    link: str,
+    git: int,  # | bool,
+    brackets: list,
+    after: list,
+    no_error: int,  # | bool,
+    width: int,
+    duration: float
+) -> str:
+
+    result_cwd = get_cwd_and_link(cwd, link)
+
+    result_git = ''
+    if git:
+        result_git += (
+            colors_map['Git'] + symbols_map['Git'] + colors_map['Reset'] + ' '
+        )
+
+    result_brackets = get_brackets(brackets, after)
 
     # get the lenght of written so far
-    raw = result
+    raw = result_cwd + result_git + result_brackets
     for item in colors_map:
         raw = raw.replace(colors_map[item], '', -1)
 
-    width -= len(raw) + int('🌙' in raw) + 1  # new line at the end
+    width -= (
+        len(raw)
+        + int('🌙' in raw)  # because it's len == 1, but uses two spaces
+        + 1  # new line at the end
+    )
 
-    clocks_str = resolve_clocks(duration, width)
-    if clocks_str:
-        result += ' '
+    result_clocks = resolve_clocks(duration, width)
+    if result_clocks:
+        result_brackets += ' '
         width -= 1
 
-    width -= len(clocks_str) - int('🕓' not in clocks_str)
-    result += ' ' * width + clocks_str
+    width -= len(result_clocks) - int('🕓' not in result_clocks)
+    result = (
+        result_cwd + result_git + result_brackets
+        + ' ' * width + result_clocks
+    )
 
     if width > 0:
         result += '\n'

@@ -26,6 +26,7 @@ The compilers searched are GCC and G++.
 
 ![p, pz](./images/p_pz.gif)
 - `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`  
+- `p` behaves like `cd` for unknown paths
   
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
@@ -33,10 +34,12 @@ Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'
   
 ![Switch-Theme](./images/switch_theme.gif)
 Can take four arguments: all, system, terminal, and blue.  
-- terminal: Toggles Windows Terminal default theme between 'Tango Dark' and 'Solarized Light'.  
+- terminal: Toggles Windows Terminal default theme.
 - system: Toggles system wide Dark Mode.  
 - blue: Toggles 'Blue light reduction'.  
-- all: Same as not passing arguments. Do all the above.
+- all: Same as not passing arguments. Do all the above.  
+  
+The `system` option is not working properly on Windows 11 22h2...
   
 ### Searching history
 
@@ -45,6 +48,17 @@ Can take four arguments: all, system, terminal, and blue.
 ### Listing directory
 
 ![lss](./images/ll_la.gif)  
+
+### Customization
+
+The server will look for a `.shellserver.toml` in the user home directory.
+Only two options will be searched right now.
+
+~~~toml
+# Windows Terminal themes
+dark_theme = '...'  # defaults to Tango Dark
+light_theme = '...'  # Solarized Light
+~~~
   
 ## CLI
 
@@ -63,7 +77,7 @@ options:
 
 ## Requirements
 
-- Python 3.9+ or latest [Pypy](https://www.pypy.org/)(still slower than Python 3.11)
+- Python 3.9+ or latest [Pypy](https://www.pypy.org/) (still slower than Python 3.11)
 - PowerShell 6.2+ (I think)
 - Any NerdFont (I use MesloGS NF)
 - A xterm compatible terminal
@@ -96,11 +110,12 @@ The git status info still experimental, do `pythonw -m shellserver --use-git` in
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   
-Attach a _stdout_ to the server, pass `--verbose` to it and it will give lot of info when it sees a git repo.
+Attach a _stdout_ to the server, pass `--verbose` to it and it will give the time taken for each communication.  
+`--verbose --git-verbose` will give lot of info when it sees a git repo.
 ~~~
-shellserver kill
+> shellserver kill
 # A message that the server is not responding and your prompt will be like before.
-python -m shellserver --verbose  # no w, blocking
+> python -m shellserver --verbose --git-verbose  # no w, blocking
 ~~~
 Open another shell and walk to a git repo.  
   
@@ -108,7 +123,7 @@ The server can accept `--let-crash` argument to let errors propagate. `--use-git
 
 There are also: 
 - `--disable-git`
-- `--wait`: We will use our 'gitstatus' subpackage for repos up to 1000 index entries. Will use git otherwise, unless this flag is set.
+- `--wait`: We will use our 'gitstatus' subpackage for repos up to 2500 index entries. Will use git otherwise, unless this flag is set.
 
 On Pwsh module:
 - `Set-ServerTimeout`: arg in ms. 

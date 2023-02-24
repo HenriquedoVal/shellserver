@@ -104,6 +104,11 @@ function p {
   elseif ($response) {
    Set-Location $response
   }
+  elseif (
+    $resPath = try {(Resolve-Path $path -ErrorAction 'Stop').Path} catch {}
+  ) {
+      Set-Location $resPath
+    }
   else {
     Write-Output "ShellServer: No match found."
   }

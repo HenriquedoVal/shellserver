@@ -1,6 +1,6 @@
 import socket
 
-from .__init__ import APP_HOME, PORT, SEP
+from .__init__ import APP_HOME, PORT, SEP, CONFIG_PATH
 
 # Quit program as soon as possible
 try:
@@ -16,11 +16,16 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
+
+try:
+    import tomllib
+except ImportError:
+    import tomlkit as tomllib
 
 from win_basic_tools import Ls
 
-from . import histdb, theme
-from . import gitstatus
+from . import histdb, theme, gitstatus
 from .classes import DirCache, Dispatcher
 from .style import style
 
@@ -28,11 +33,19 @@ from .style import style
 gc.disable()
 
 
+@dataclass
+class Config:
+    dark_theme: str = 'Tango Dark'
+    light_theme: str = 'Solarized Light'
+
+
 def shell_manager(entry: str, addr) -> None:
+    global clients
+
     if entry.startswith('Init'):
         shell = entry.removeprefix('Init')
         dispatcher.register(addr, shell)
-        clients.append(1)
+        clients += 1
         completions = ';'.join(item[2] for item in cache.dirs)
         dispatcher.send_through(sock, completions, addr)
 
@@ -49,11 +62,8 @@ def shell_manager(entry: str, addr) -> None:
         sys.argv.append(option)
 
     elif entry == 'Exit':
-        try:
-            clients.pop()
-        except IndexError:
-            pass
-        if not clients:
+        clients -= 1
+        if clients <= 0:
             cache.finish()
             raise SystemExit
 
@@ -85,7 +95,7 @@ def list_directory(entry: str, addr: int) -> None:
 
     # Ls class can handle symlink
     ls = Ls(opt, path, to_cache=True)
-    ls.echo(0)
+    ls.echo()
 
     dispatcher.send_through(sock, ls.out.data, addr)
 
@@ -95,12 +105,12 @@ def theme_manager(entry: str, addr) -> None:
         if entry in ('all', ''):
             theme.all()
         elif entry == 'terminal':
-            theme.windows_terminal_change()
+            theme.windows_terminal_change(config)
         elif entry == 'blue':
             theme.night_light_change()
         elif entry == 'system':
             theme.system_change()
-    except:  # noqa: bare except. I need to catch everything
+    except Exception:
         pass
 
 
@@ -283,7 +293,7 @@ defined_functions = (
 )
 functionalities = dict(zip(entries, defined_functions))
 
-clients = []
+clients = 0
 cache = DirCache()
 dispatcher = Dispatcher()
 home = os.path.expanduser('~')
@@ -296,3 +306,11 @@ exes_with_version = {}
 
 for exe in exes_to_search:
     threading.Thread(target=get_version, args=(exe,)).start()
+
+if os.path.exists(CONFIG_PATH):
+    with open(CONFIG_PATH, 'rb') as file:
+        toml = tomllib.load(file)
+else:
+    toml = {}
+
+config = Config(**toml)

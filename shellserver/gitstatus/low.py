@@ -299,7 +299,7 @@ class Low:
             hexa = data[stop + 1:start]
             hexa = f'{int.from_bytes(hexa, "big"):x}'.zfill(40)
 
-            res.append((type_.decode(), hexa, filename.decode()))
+            res.append((type_.decode(), hexa, filename.decode().lower()))
 
             if not data[start + 1:]:
                 break

@@ -94,7 +94,7 @@ def system_change():
     winreg.CloseKey(set_handle_hkey)
 
 
-def windows_terminal_change():
+def windows_terminal_change(config):
     DEFAULT = os.path.join(
         os.environ['LOCALAPPDATA'],
         'Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe',
@@ -130,14 +130,14 @@ def windows_terminal_change():
         NAME = "SystemUsesLightTheme"
 
         if _get_actual_value(SUB_KEY, NAME):  # is light?
-            defaults['colorScheme'] = "Solarized Light"
+            defaults['colorScheme'] = config.light_theme
         else:
-            defaults['colorScheme'] = "Tango Dark"
+            defaults['colorScheme'] = config.dark_theme
 
-    elif actual_scheme == "Solarized Light":
-        defaults['colorScheme'] = "Tango Dark"
+    elif actual_scheme == config.light_theme:
+        defaults['colorScheme'] = config.dark_theme
     else:
-        defaults['colorScheme'] = "Solarized Light"
+        defaults['colorScheme'] = config.light_theme
 
     with open(path, 'w') as mod_file:
         json.dump(file, mod_file, indent=4)

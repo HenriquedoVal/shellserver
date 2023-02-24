@@ -6,6 +6,8 @@ import sys
 
 from . import low, high
 
+OBJ = high.High()
+
 
 def gitstatus(
     target_path: str,
@@ -27,22 +29,19 @@ def gitstatus(
     else:
         return None, None
 
+    OBJ.init(git_dir, branch)
+
     try:
         if '--use-git' in sys.argv:
             raise high.FallbackError
-        obj = high.High(git_dir, branch)
-        status = obj.status()
+        status = OBJ.status()
 
     except high.FallbackError:
-        obj = low.Low()
-        obj.git_dir = git_dir
-        status = obj.parse_git_status()
+        status = OBJ.parse_git_status()
 
     except Exception:
         if '--let-crash' in sys.argv:
             raise
-        obj = low.Low()
-        obj.git_dir = git_dir
-        status = obj.parse_git_status()
+        status = OBJ.parse_git_status()
 
     return branch, status
