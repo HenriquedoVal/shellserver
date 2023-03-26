@@ -11,6 +11,12 @@ import os
 import subprocess
 import zlib
 
+try:
+    import pygit2
+    HAS_PYGIT2 = True
+except ImportError:
+    HAS_PYGIT2 = False
+
 
 def get_dot_git(target_path: str) -> str | None:
     """
@@ -25,7 +31,7 @@ def get_dot_git(target_path: str) -> str | None:
 
     parent = os.path.dirname(target_path)
     if parent == target_path:
-        return
+        return None
 
     return get_dot_git(parent)
 
@@ -55,6 +61,13 @@ def get_branch_on_head(git_dir: str) -> str:
 
 
 class Low:
+    # {git_dir: repo}
+    pygit2_repos: dict[str, pygit2.Repository] = {}
+
+    # populate var just for mypy stop complaining
+    git_dir = 'Unreachable'
+    branch = 'Unreachable'
+
     def get_info_packs_content(self) -> list:  # [str]:
         """
         Checks the existence of a 'packs' file in git/objects
@@ -81,14 +94,13 @@ class Low:
 
         return content
 
-    def get_gitignore_content(self) -> list:  # [str]:
+    def get_gitignore_content(self, dir_path) -> list:  # [str]:
         """
-        Checks the existence of a .gitignore in same level of .git
-        and return its content
+        Searhes for a .gitignore in the same level of `dir_path`.
         return: list: Content of .gitignore by line.
         """
 
-        gitignore = os.path.join(self.git_dir, '.gitignore')
+        gitignore = os.path.join(dir_path, '.gitignore')
         if not os.path.exists(gitignore):
             return []
 
@@ -119,7 +131,7 @@ class Low:
         )
 
         if not os.path.exists(head_path):
-            return
+            return None
 
         with open(head_path) as file:
             return file.read().strip()
@@ -198,7 +210,7 @@ class Low:
             self.git_dir, f'.git/objects/{hash_[:2]}/{hash_[2:]}'
         )
         if not os.path.exists(path):
-            return
+            return None
 
         with open(path, 'rb') as in_file:
             content = in_file.read()
@@ -229,7 +241,7 @@ class Low:
         return: str | None: String of status, None if not any value is above 0.
         """
         if not any(status):
-            return
+            return None
 
         symbols = ('?', '+', 'm', 'x')
 
@@ -241,18 +253,18 @@ class Low:
 
     def parse_git_status(self) -> str:
         """
-        Parses `git status -s` returning tuple of untracked, staged,
+        Parses `git status --porcelain` returning tuple of untracked, staged,
         modified and deleted sums.
-        return: str: String of status.
+        return: str: String of status, empty string for nothing to report.
         """
-        data, err = subprocess.Popen(
-            f'git -C {self.git_dir} status -s --porcelain',
+        out, err = subprocess.Popen(
+            f'git -C {self.git_dir} --no-optional-locks status --porcelain',
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW
         ).communicate()
 
-        data = data.decode().splitlines()
+        data = out.decode().splitlines()
         data = [line[:2].strip() for line in data]
 
         possibles = list(set(data))
@@ -263,18 +275,18 @@ class Low:
 
     def parse_tree_object(
             self, data: bytes, from_pack: bool = False
-    ) -> list:  # [tuple[str, str, str]] | None:
+    ) -> list:
         """
         Parses the content of a git tree object and returns a list
         of its values
         param `data`: The content decompressed of tree object
-        return: list | None: list of tuples containing the type, hash and
-                the filename in tree, None if tree is empty.
+        return: list: list of tuples containing the type, hash and
+                the filename in tree.
         """
 
         if not from_pack:
             if not data[data.index(b'\x00') + 1:]:
-                return
+                return []
 
             # first remove everything before first null byte
             start = data.index(b'\x00') + 1
@@ -297,11 +309,32 @@ class Low:
             start = stop + 21  # next start
 
             hexa = data[stop + 1:start]
-            hexa = f'{int.from_bytes(hexa, "big"):x}'.zfill(40)
+            hexa_str = f'{int.from_bytes(hexa, "big"):x}'.zfill(40)
 
-            res.append((type_.decode(), hexa, filename.decode().lower()))
+            res.append((type_.decode(), hexa_str, filename.decode().lower()))
 
             if not data[start + 1:]:
                 break
 
         return res
+
+    def parse_pygit2(self):
+        repo = self.pygit2_repos.get(self.git_dir)
+        if repo is None:
+            repo = pygit2.Repository(self.git_dir)
+            self.pygit2_repos[self.git_dir] = repo
+
+        d: dict = repo.status()
+
+        unt = sta = mod = del_ = 0
+        for value in d.values():
+            if value & 0x80:
+                unt += 1
+            elif value & 1:
+                sta += 1
+            elif value & 0x100:
+                mod += 1
+            elif value & 0x200:
+                del_ += 1
+
+        return self.get_status_string((unt, sta, mod, del_))

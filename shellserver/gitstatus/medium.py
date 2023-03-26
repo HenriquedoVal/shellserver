@@ -12,12 +12,46 @@ from . import packs
 
 os = low.os
 
+try:
+    from ssd_checker import is_ssd  # fail fast
+
+    from ctypes import windll
+    import string
+    import threading as th
+
+    # pywin32 is dep of ssd_checker
+    from pythoncom import CoInitialize
+
+    DRIVE_SSD_MAP = {}
+
+    def populate(letter):
+        CoInitialize()
+        DRIVE_SSD_MAP[letter] = is_ssd(letter)
+
+    bitmask = windll.kernel32.GetLogicalDrives()
+    for letter in string.ascii_uppercase:
+        if bitmask & 1:
+            letter = letter.lower() + ':'
+            th.Thread(
+                target=populate, args=(letter,), daemon=True
+            ).start()
+        bitmask >>= 1
+
+    HAS_SSD_CHECKER = True
+
+except ImportError:
+    HAS_SSD_CHECKER = False
+
 
 class IndexTooBigError(Exception):
     pass
 
 
 class Medium(low.Low, packs.Packs):
+    # populate var just for mypy stop complaining
+    git_dir = 'Unreachable'
+    branch = 'Unreachable'
+
     def set_packs(self) -> None:
         """
         Sets the `packs_list` attribute.
@@ -40,9 +74,9 @@ class Medium(low.Low, packs.Packs):
             self.packs_list = []
             return
 
-        packs_list = os.scandir(packs)
+        dir_ = os.scandir(packs)
         self.packs_list = [
-            i.path for i in packs_list if i.name.endswith('.pack')
+            i.path for i in dir_ if i.name.endswith('.pack')
         ]
 
     def set_index_tracked(self) -> None:
@@ -52,6 +86,14 @@ class Medium(low.Low, packs.Packs):
         https://github.com/sbp/gin
         return: None.
         """
+        max_entries = 1000
+        if HAS_SSD_CHECKER:
+            for drive in DRIVE_SSD_MAP:
+                if self.git_dir.startswith(drive):
+                    # if SSD: 2500 if HDD: 1000
+                    max_entries = 2500 if DRIVE_SSD_MAP[drive] else 1000
+                    break
+
         index_path = os.path.join(self.git_dir, '.git/index')
         if not os.path.exists(index_path):
             self.index_tracked = tuple()
@@ -59,7 +101,7 @@ class Medium(low.Low, packs.Packs):
 
         with open(index_path, 'rb') as f:
 
-            def readStrUntil(delim):
+            def read_str_until(delim):
                 ret = []
                 while True:
                     b = f.read(1)
@@ -78,7 +120,8 @@ class Medium(low.Low, packs.Packs):
 
             for entry in range(entries):
                 f.read(8)
-                mtime = int.from_bytes(f.read(4), 'big')
+                # converted to float to keep type consistence
+                mtime = float(int.from_bytes(f.read(4), 'big'))
                 mtime += int.from_bytes(f.read(4), 'big') / 1000000000
                 f.read(44)
 
@@ -96,13 +139,13 @@ class Medium(low.Low, packs.Packs):
                     name = f.read(namelen).decode()
                     entrylen += namelen
                 else:
-                    name = readStrUntil('\x00')
+                    name = read_str_until('\x00')
                     entrylen += 1
 
                 res[name.lower()] = mtime
 
                 give_up = '--wait' not in sys.argv
-                if give_up and len(res) > 2500:
+                if give_up and len(res) > max_entries:
                     raise IndexTooBigError
 
                 padlen = (8 - (entrylen % 8)) or 8
@@ -110,29 +153,24 @@ class Medium(low.Low, packs.Packs):
 
         self.index_tracked = res
 
-    def set_split_ignored(self) -> None:
+    def get_split_ignored(self, raw_ignored) -> tuple[list, list]:
         """
-        Sets `fixed` and `ignored` attributes.
-        `fixed` represents the patterns to ignore as full paths.
-        `ignored` represents the patterns to ignore as relative paths.
-        return: None.
+        Returns two lists in this order: fixed and relative.
         """
-        raw_ignored = self.get_exclude_content()
-        raw_ignored += self.get_gitignore_content()
         raw_ignored = [
             i.strip().lower()
             for i in raw_ignored
             if not i.strip().startswith('#')
         ]
 
-        ignored = [
+        relative = [
             i for i in raw_ignored
             if '/' not in i
         ]
 
-        fixed = [i for i in raw_ignored if i not in ignored]
+        fixed = [i for i in raw_ignored if i not in relative]
 
-        self.fixed, self.ignored = fixed, ignored
+        return fixed, relative
 
     def get_content_by_hash_packed(self, hash_: str) -> bytes | None:
         """

@@ -11,11 +11,11 @@ But if your hardware gives you a fluid shell experience using Starship, I recomm
 
 ## Features
   
-### Prompt with a fast glance at what is in directory  
+### Prompt with a fast glance at what is in the directory  
 
 ![Bloated](./images/bloated.png)  
 This is the most bloated prompt that you will get.
-It will indicate the existence of Python, C, C++, Lua, Node and PowerShell files on directory.  
+It will indicate the existence of Python, C, C++, Lua, Node, and PowerShell files in the directory.  
 The compilers searched are GCC and G++.  
   
 ### No lag from spawning processes  
@@ -35,7 +35,7 @@ Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'
 ![Switch-Theme](./images/switch_theme.gif)
 Can take four arguments: all, system, terminal, and blue.  
 - terminal: Toggles Windows Terminal default theme.
-- system: Toggles system wide Dark Mode.  
+- system: Toggles system-wide Dark Mode.  
 - blue: Toggles 'Blue light reduction'.  
 - all: Same as not passing arguments. Do all the above.  
   
@@ -49,12 +49,26 @@ The `system` option is not working properly on Windows 11 22h2...
 
 ![lss](./images/ll_la.gif)  
 
+### Plugins
+
+All those are relative to getting the git status.
+
+- [watchdog](https://github.com/gorakhargosh/watchdog): Filesystem watcher. Makes better caching possible.
+- [pygit2](https://github.com/libgit2/pygit2): libgit2 python bindings. Faster than using git itself.
+- [ssd_checker](https://github.com/kipodd/ssd_checker): Solid-State Drive checker. Change the strategy accordingly to drive speed.
+Just `pip install` the ones you want, restart shellserver, and no further config is needed.
+
+
 ### Customization
 
 The server will look for a `.shellserver.toml` in the user home directory.
-Only two options will be searched right now.
+Only three options will be searched right now.
 
 ~~~toml
+git_timeout = 500  # in ms, defaults to 2500, the value is really hardware dependent
+# if you have watchdog, I would recommend something around 100
+# if the value is too low you might get no status over and over: `[...]`
+
 # Windows Terminal themes
 dark_theme = '...'  # defaults to Tango Dark
 light_theme = '...'  # Solarized Light
@@ -63,7 +77,7 @@ light_theme = '...'  # Solarized Light
 ## CLI
 
 The server knows how many clients it haves and will know if you quit shell with 'exit'  
-but if window is closed on 'X' it may outlive the shell. 
+but if the window is closed on 'X' it may outlive the shell. 
 
 ~~~
 usage: shellserver [-h] {kill,clear}
@@ -101,17 +115,18 @@ Import-Module ShellServer
 ~~~
 
 ### Keep updated
-As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Update-Module ShellServer` must be run both when one changes.  
+As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Update-Module ShellServer` must both be run when one changes.  
 v0.0.8+ will work with the PowerShell ShellServer module 0.0.6+.
 
 ## Debugging
 
 The git status info still experimental, do `pythonw -m shellserver --use-git` in your profile to always use git. 
+If you have installed pygit2, you can pass `--use-pygit2` instead, which is faster than `--use-git`.  
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   
 Attach a _stdout_ to the server, pass `--verbose` to it and it will give the time taken for each communication.  
-`--verbose --git-verbose` will give lot of info when it sees a git repo.
+`--verbose --git-verbose` will give a lot of info when it sees a git repo.
 ~~~
 > shellserver kill
 # A message that the server is not responding and your prompt will be like before.
@@ -119,11 +134,9 @@ Attach a _stdout_ to the server, pass `--verbose` to it and it will give the tim
 ~~~
 Open another shell and walk to a git repo.  
   
-The server can accept `--let-crash` argument to let errors propagate. `--use-git` will have preference over this.
-
 There are also: 
 - `--disable-git`
-- `--wait`: We will use our 'gitstatus' subpackage for repos up to 2500 index entries. Will use git otherwise, unless this flag is set.
+- `--wait`: We will use our 'gitstatus' subpackage for repos up to 2500 index entries (in ssd, 1000 otherwise if ssd_checker is present). Will use git otherwise, unless this flag is set.
 
 On Pwsh module:
 - `Set-ServerTimeout`: arg in ms. 
@@ -133,4 +146,4 @@ On Pwsh module:
     - use-git: Use git.exe for git status info
     - wait: Use 'gitstatus' subpackage no matter how big is repo
     - verbose
-    - let-crash: At this point it's probably useless
+    - let-crash: At this point, it's probably useless

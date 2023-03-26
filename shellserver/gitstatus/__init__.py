@@ -3,14 +3,35 @@ This submodule provides an inline view of 'git status'
 """
 
 import sys
+import threading as th
 
 from . import low, high
 
-OBJ = high.High()
+
+def _populate_status():
+    try:
+        status = obj.status()
+    except high.FallbackError:
+        status = obj.parse_git_status()
+
+        if high.HAS_WATCHDOG:
+
+            # TODO: implement some kind of idleness checker for wathdog thread
+            # before saving cache
+
+            obj.save_status_in_cache(status)
+
+    except Exception:
+        if '--let-crash' in sys.argv:
+            raise
+        status = obj.parse_git_status()
+
+    status_list[0] = status
 
 
 def gitstatus(
     target_path: str,
+    config: dict = None
 ) -> tuple[str, str]:
     """
     Highest level function that gets an inline version of
@@ -29,19 +50,33 @@ def gitstatus(
     else:
         return None, None
 
-    OBJ.init(git_dir, branch)
+    obj.init(git_dir, branch)
 
-    try:
-        if '--use-git' in sys.argv:
-            raise high.FallbackError
-        status = OBJ.status()
+    if '--use-git' in sys.argv:
+        status = obj.parse_git_status()
 
-    except high.FallbackError:
-        status = OBJ.parse_git_status()
+    elif '--use-pygit2' in sys.argv:
+        status = obj.parse_pygit2()
 
-    except Exception:
-        if '--let-crash' in sys.argv:
-            raise
-        status = OBJ.parse_git_status()
+    else:
+        global thread
+
+        status_list[0] = '...'
+
+        if not thread.is_alive():
+            thread = th.Thread(target=_populate_status)
+            thread.start()
+
+        if config is not None:
+            thread.join(timeout=config.git_timeout / 1000)
+        else:
+            thread.join(2.5)
+
+        status = status_list[0]
 
     return branch, status
+
+
+obj = high.High()
+status_list = [None]
+thread = th.Thread(target=_populate_status)

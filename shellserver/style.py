@@ -4,7 +4,7 @@ from datetime import datetime
 
 import darkdetect
 
-from .__init__ import SEP
+from .__init__ import SEP, USER_HOME
 
 
 def darkdetect_callback(arg):
@@ -85,7 +85,68 @@ def resolve_clocks(duration: float, width: int) -> str:
     return res
 
 
-def get_cwd_and_link(cwd, link):
+def get_ephem_brackets(brackets, after, apply_esc=False):
+    result = ''
+    for item in brackets:
+        symbol, text = item.split(';')
+
+        result += '['
+        if apply_esc:
+            result += colors_map[symbol]
+        result += symbols_map[symbol]
+
+        if symbol != 'Status':
+            result += ' '
+        result += text
+
+        if apply_esc:
+            result += colors_map['Reset']
+        result += '] '
+
+    for item in after:
+        if apply_esc:
+            result += colors_map[item]
+
+        result += symbols_map[item] + ' '
+
+        if apply_esc:
+            result += colors_map['Reset']
+
+    return result
+
+
+def get_brackets_no_version(brackets, after, apply_esc=False):
+    result = ''
+    for item in brackets:
+        symbol, text = item.split(';')
+
+        if symbol == 'Status':
+            if apply_esc:
+                result += f'[{colors_map[symbol]}{text}{colors_map["Reset"]}] '
+            else:
+                result += '[' + text + '] '
+            continue
+
+        if apply_esc:
+            result += colors_map[symbol]
+
+        # wrapped block
+        if symbol == 'Branch':
+            result += text + ' '
+        else:
+            result += symbols_map[symbol] + ' '
+        #
+
+        if apply_esc:
+            result += colors_map['Reset']
+
+    for item in after:
+        result += symbols_map[item] + ' '
+
+    return result
+
+
+def get_ephem_cwd_and_link(cwd, link, dir_depth: int, path_max_len: int):
     equal = cwd == link
 
     if cwd == '~':
@@ -95,43 +156,70 @@ def get_cwd_and_link(cwd, link):
     else:
         cwd = ' ' + cwd
 
-    cwd = hide_first_dirs(cwd, 5)
-    cwd = reduce_big_path_names(cwd, 25)
-
-    result = colors_map['Cwd'] + cwd + colors_map['Reset'] + ' '
+    if dir_depth:
+        cwd = hide_first_dirs(cwd, dir_depth)
+    if path_max_len:
+        cwd = reduce_big_path_names(cwd, path_max_len)
+    cwd += ' '
 
     if not equal:
-        link = hide_first_dirs(link, 5)
-        link = reduce_big_path_names(link, 25)
+        if dir_depth:
+            link = hide_first_dirs(link, dir_depth)
+        if path_max_len:
+            link = reduce_big_path_names(link, path_max_len)
+        link += ' '
+    else:
+        link = ''
+
+    return cwd, link
+
+
+def apply_escape_codes(
+    cwd: str,
+    link: str,
+    result_git: str,
+    brackets: list,
+    after: list,
+    no_versions: bool,
+    clock: str,
+    spaces: int,
+    no_error: int,  # | bool,
+) -> str:
+
+    result = colors_map['Cwd'] + cwd + colors_map['Reset']
+    if link:
         result += (
             colors_map['Link']
             + ' '
             + colors_map['Cwd']
             + link
             + colors_map['Reset']
-            + ' '
         )
 
-    return result
-
-
-def get_brackets(brackets, after):
-    result = ''
-    for item in brackets:
-        symbol, text = item.split(';')
-
-        result += '[' + colors_map[symbol] + symbols_map[symbol]
-        if symbol != 'Status':
-            result += ' '
-        result += text + colors_map['Reset'] + '] '
-
-    for item in after:
+    if result_git:
         result += (
-            colors_map[item] + symbols_map[item] + colors_map['Reset'] + ' '
+            colors_map['Git'] + result_git + colors_map['Reset']
         )
 
-    # remove last empty space, new line might be in there
-    result = result.strip()
+    if no_versions:
+        result += get_brackets_no_version(
+            brackets, after, apply_esc=True
+        )
+    else:
+        result += get_ephem_brackets(brackets, after, apply_esc=True)
+
+    if spaces >= 1:  # if there's room for new line
+        result += ' ' * (spaces - 1) + clock + '\n'
+    else:
+        result += clock
+
+    if no_error:
+        result += colors_map['No_error']
+    else:
+        result += colors_map['Error']
+
+    result += '❯ ' + colors_map['Reset']
+
     return result
 
 
@@ -146,47 +234,71 @@ def style(
     duration: float
 ) -> str:
 
-    result_cwd = get_cwd_and_link(cwd, link)
+    if USER_HOME in cwd:
+        cwd = '~' + cwd.removeprefix(USER_HOME)
+    if USER_HOME in link:
+        link = '~' + link.removeprefix(USER_HOME)
 
-    result_git = ''
-    if git:
-        result_git += (
-            colors_map['Git'] + symbols_map['Git'] + colors_map['Reset'] + ' '
+    result_cwd, result_link = get_ephem_cwd_and_link(cwd, link, 0, 0)
+    result_git = symbols_map['Git'] + ' ' if git else ''
+    result_brackets = get_ephem_brackets(brackets, after)
+    result_clocks = resolve_clocks(duration, width)
+
+    counter = 0
+    no_versions = False
+    prompt = (
+        result_cwd + result_link + result_git + result_brackets + result_clocks
+    )
+    prompt_length = (
+        len(prompt) + int('🌙' in prompt) + int('🕓' in prompt)
+        + (2 if result_link else 0)
+    )
+
+    while prompt_length > width:
+
+        if counter in range(4):
+            result_cwd, result_link = get_ephem_cwd_and_link(
+                cwd, link, 5 - counter, 0
+            )
+
+        elif counter == 4:
+            result_brackets = get_brackets_no_version(brackets, after)
+            no_versions = True
+
+        elif counter == 5:
+            result_clocks = resolve_clocks(duration, width - prompt_length)
+
+        elif counter in range(6, 9):
+            result_cwd, result_link = get_ephem_cwd_and_link(
+                cwd, link, 3, 65 - counter * 5
+            )
+
+        elif counter == 9:
+            break
+
+        counter += 1
+        prompt = (
+            result_cwd + result_link + result_git
+            + result_brackets + result_clocks
+        )
+        prompt_length = (
+            len(prompt) + int('🌙' in prompt) + int('🕓' in prompt)
+            + (2 if result_link else 0)
         )
 
-    result_brackets = get_brackets(brackets, after)
+    spaces = width - prompt_length
 
-    # get the lenght of written so far
-    raw = result_cwd + result_git + result_brackets
-    for item in colors_map:
-        raw = raw.replace(colors_map[item], '', -1)
-
-    width -= (
-        len(raw)
-        + int('🌙' in raw)  # because it's len == 1, but uses two spaces
-        + 1  # new line at the end
+    result = apply_escape_codes(
+        result_cwd,
+        result_link,
+        result_git,
+        brackets,
+        after,
+        no_versions,
+        result_clocks,
+        spaces,
+        no_error
     )
-
-    result_clocks = resolve_clocks(duration, width)
-    if result_clocks:
-        result_brackets += ' '
-        width -= 1
-
-    width -= len(result_clocks) - int('🕓' not in result_clocks)
-    result = (
-        result_cwd + result_git + result_brackets
-        + ' ' * width + result_clocks
-    )
-
-    if width > 0:
-        result += '\n'
-
-    if no_error:
-        result += colors_map['No_error']
-    else:
-        result += colors_map['Error']
-
-    result += '❯ ' + colors_map['Reset']
 
     return result
 

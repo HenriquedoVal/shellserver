@@ -1,6 +1,6 @@
 import socket
 
-from .__init__ import APP_HOME, PORT, SEP, CONFIG_PATH
+from .__init__ import APP_HOME, PORT, SEP, CONFIG_PATH, USER_HOME
 
 # Quit program as soon as possible
 try:
@@ -18,16 +18,16 @@ import threading
 import time
 from dataclasses import dataclass
 
-try:
-    import tomllib
-except ImportError:
-    import tomlkit as tomllib
-
 from win_basic_tools import Ls
 
 from . import histdb, theme, gitstatus
 from .classes import DirCache, Dispatcher
 from .style import style
+
+try:
+    import tomllib
+except ImportError:
+    import tomlkit as tomllib
 
 
 gc.disable()
@@ -35,6 +35,7 @@ gc.disable()
 
 @dataclass
 class Config:
+    git_timeout: int = 2500
     dark_theme: str = 'Tango Dark'
     light_theme: str = 'Solarized Light'
 
@@ -122,51 +123,46 @@ def history_search(entry: str, addr) -> None:
     dispatcher.send_through(sock, res, addr)
 
 
-def _get_paths(curdir):
+def _get_paths(cwd):
     # Microsoft.PowerShell.Core\Registry::
-    curdir = curdir.removeprefix('Microsoft.PowerShell.Core\\')
+    cwd = cwd.removeprefix('Microsoft.PowerShell.Core\\')
     # os.realpath can handle \\wsl$\Distro
-    curdir = curdir.removeprefix('FileSystem::')
+    cwd = cwd.removeprefix('FileSystem::')
 
     # Python 3.10+
     # try:
-    #     link = os.path.realpath(curdir, strict=True)
+    #     link = os.path.realpath(cwd, strict=True)
     # except OSError:
     #     #  Env:, Function:, Alias:, ...
-    #     link = curdir
+    #     link = cwd
 
     # Workaround. Can lead to errors
-    link = os.path.realpath(curdir)
+    link = os.path.realpath(cwd)
     if not os.path.exists(link):
-        link = curdir
+        link = cwd
 
-    target_dir = curdir if curdir == link else link
+    target_dir = cwd if cwd == link else link
 
-    if home in curdir:
-        curdir = '~' + curdir.removeprefix(home)
-    if home in link:
-        link = '~' + link.removeprefix(home)
-
-    return curdir, link, target_dir
+    return cwd, link, target_dir
 
 
 def scan(entry, addr):
     no_error = int(entry[0])
-    curdir, width, duration = entry[1:].split(';')
+    cwd, width, duration = entry[1:].split(';')
 
     width = int(width)
     duration = round(float(duration.replace(',', '.')), 1)
 
     # must add before cleanup because Set-Location needs full 'path'
-    if curdir != home:
-        cache.add(curdir)
+    if cwd != USER_HOME:
+        cache.add(cwd)
 
-    curdir, link, target_dir = _get_paths(curdir)
+    cwd, link, target_dir = _get_paths(cwd)
 
     brackets = []
     after_brackets = []
 
-    branch, status = gitstatus.gitstatus(target_dir)
+    branch, status = gitstatus.gitstatus(target_dir, config)
     if branch is not None:
         brackets.append(f'Branch;{branch}')
         if status:
@@ -200,7 +196,7 @@ def scan(entry, addr):
                 after_brackets.append(notation)
 
     prompt = style(
-        curdir, link, git_flag, brackets,
+        cwd, link, git_flag, brackets,
         after_brackets, no_error, width, duration
     )
 
@@ -219,9 +215,6 @@ def mainloop():
         if '--verbose' in sys.argv:
             took = round(time.perf_counter() - init, 5)
             print(f'Took: {took}s')
-
-        for mmap in gitstatus.packs.MAPPED_CACHE.values():
-            mmap.close()
 
         gc.collect()
 
@@ -296,7 +289,6 @@ functionalities = dict(zip(entries, defined_functions))
 clients = 0
 cache = DirCache()
 dispatcher = Dispatcher()
-home = os.path.expanduser('~')
 
 py_version = sys.version
 py_version = py_version[:py_version.index(' ')]
@@ -313,4 +305,11 @@ if os.path.exists(CONFIG_PATH):
 else:
     toml = {}
 
-config = Config(**toml)
+try:
+    config = Config(
+        git_timeout=int(toml.get('git_timeout', 2500)),
+        dark_theme=str(toml.get('dark_theme', 'Tango Dark')),
+        light_theme=str(toml.get('light_theme', 'Solarized Light'))
+    )
+except ValueError:
+    config = Config()
