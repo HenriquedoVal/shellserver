@@ -58,6 +58,12 @@ def shell_manager(entry: str, addr) -> None:
             except ValueError:
                 pass
             return
+        if option == '--use-gitstatus':
+            try:
+                sys.argv.remove('--use-git')
+            except ValueError:
+                pass
+            return
         if option == '--verbose':
             sys.stdout = sys.__stdout__
         sys.argv.append(option)
@@ -180,7 +186,7 @@ def scan(entry, addr):
 
     for file in directory:
         if (py_not not in brackets
-           and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd'))):
+           and file.name.endswith(('.py', '.pyc', '.pyw', '.pyd', '.pyi'))):
             brackets.append(py_not)
 
         for exe in exes_with_version:

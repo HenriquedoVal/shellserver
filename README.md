@@ -55,7 +55,8 @@ All those are relative to getting the git status.
 
 - [watchdog](https://github.com/gorakhargosh/watchdog): Filesystem watcher. Makes better caching possible.
 - [pygit2](https://github.com/libgit2/pygit2): libgit2 python bindings. Faster than using git itself.
-- [ssd_checker](https://github.com/kipodd/ssd_checker): Solid-State Drive checker. Change the strategy accordingly to drive speed.
+- [ssd_checker](https://github.com/kipodd/ssd_checker): Solid-State Drive checker. Change the strategy accordingly to drive speed.  
+  
 Just `pip install` the ones you want, restart shellserver, and no further config is needed.
 
 
@@ -65,9 +66,10 @@ The server will look for a `.shellserver.toml` in the user home directory.
 Only three options will be searched right now.
 
 ~~~toml
-git_timeout = 500  # in ms, defaults to 2500, the value is really hardware dependent
+git_timeout = 500  # in ms, defaults to 2500
+# the best value is really hardware dependent
 # if you have watchdog, I would recommend something around 100
-# if the value is too low you might get no status over and over: `[...]`
+# if you don't and the value is too low you might get no status over and over: `[...]`
 
 # Windows Terminal themes
 dark_theme = '...'  # defaults to Tango Dark
@@ -77,7 +79,7 @@ light_theme = '...'  # Solarized Light
 ## CLI
 
 The server knows how many clients it haves and will know if you quit shell with 'exit'  
-but if the window is closed on 'X' it may outlive the shell. 
+but if the window or tab is closed on the 'X' button it may outlive the shell. 
 
 ~~~
 usage: shellserver [-h] {kill,clear}
@@ -93,7 +95,7 @@ options:
 
 - Python 3.9+ or latest [Pypy](https://www.pypy.org/) (still slower than Python 3.11)
 - PowerShell 6.2+ (I think)
-- Any NerdFont (I use MesloGS NF)
+- Any NerdFont (I use MesloLGS NF)
 - A xterm compatible terminal
 
 ## Installation
@@ -120,7 +122,7 @@ v0.0.8+ will work with the PowerShell ShellServer module 0.0.6+.
 
 ## Debugging
 
-The git status info still experimental, do `pythonw -m shellserver --use-git` in your profile to always use git. 
+The git status info is still experimental, do `pythonw -m shellserver --use-git` in your profile to always use git. 
 If you have installed pygit2, you can pass `--use-pygit2` instead, which is faster than `--use-git`.  
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
@@ -137,6 +139,9 @@ Open another shell and walk to a git repo.
 There are also: 
 - `--disable-git`
 - `--wait`: We will use our 'gitstatus' subpackage for repos up to 2500 index entries (in ssd, 1000 otherwise if ssd_checker is present). Will use git otherwise, unless this flag is set.
+- `--git-linear`: Fill gitstatus synchronously
+- `--no-watchdog`: Disables Watchdog plugin
+- `--test-status`: Put gitstatus subpackage result and git.exe status side-by-side
 
 On Pwsh module:
 - `Set-ServerTimeout`: arg in ms. 
@@ -144,6 +149,7 @@ On Pwsh module:
     - enable-git
     - disable-git
     - use-git: Use git.exe for git status info
-    - wait: Use 'gitstatus' subpackage no matter how big is repo
+    - use-gitstatus: Use gitstatus subpackage for git status info
+    - wait: Use the 'gitstatus' subpackage no matter how big is repo
     - verbose
     - let-crash: At this point, it's probably useless

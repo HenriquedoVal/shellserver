@@ -63,10 +63,10 @@ def get_branch_on_head(git_dir: str) -> str:
 class Low:
     # {git_dir: repo}
     pygit2_repos: dict[str, pygit2.Repository] = {}
+    git_dir: str
+    branch: str
 
-    # populate var just for mypy stop complaining
-    git_dir = 'Unreachable'
-    branch = 'Unreachable'
+    __slots__ = 'prev_read'
 
     def get_info_packs_content(self) -> list:  # [str]:
         """
@@ -94,7 +94,7 @@ class Low:
 
         return content
 
-    def get_gitignore_content(self, dir_path) -> list:  # [str]:
+    def get_gitignore_content(self, dir_path) -> list:
         """
         Searhes for a .gitignore in the same level of `dir_path`.
         return: list: Content of .gitignore by line.
@@ -155,7 +155,7 @@ class Low:
 
         return content
 
-    def get_exclude_content(self) -> list:  # [str]:
+    def get_exclude_content(self) -> list:
         """
         Checks the existence of a 'exclude' file inside .git/info
         and return its content.
@@ -180,14 +180,21 @@ class Low:
 
         return content
 
-    def get_hash_of_file(self, file_path: bytes | str, use_cr=False) -> str:
+    def get_hash_of_file(
+        self, file_path: bytes | str,
+        use_cr=False,
+        use_prev_read=False
+    ) -> str:
         """
         Get the SHA1 hash in the same way Git would do.
         param `file_path`: str | bytes: The path to file.
         param `use_cr`: bool: Use CRLF for new line?
         """
-        with open(file_path, 'rb') as in_file:
-            content = in_file.read()
+        if not use_prev_read:
+            with open(file_path, 'rb') as in_file:
+                self.prev_read = in_file.read()
+
+        content = self.prev_read
 
         if not use_cr:
             content = content.replace(b'\r\n', b'\n', -1)
@@ -251,7 +258,7 @@ class Low:
             if stat
         )
 
-    def parse_git_status(self) -> str:
+    def parse_git_status(self) -> str | None:
         """
         Parses `git status --porcelain` returning tuple of untracked, staged,
         modified and deleted sums.
@@ -271,10 +278,11 @@ class Low:
 
         res = [mark + str(data.count(mark)) for mark in possibles]
 
-        return ' '.join(res)
+        ret_value = ' '.join(res)
+        return ret_value if ret_value else None
 
     def parse_tree_object(
-            self, data: bytes, from_pack: bool = False
+            self, data: bytes, from_pack=False
     ) -> list:
         """
         Parses the content of a git tree object and returns a list
@@ -318,10 +326,11 @@ class Low:
 
         return res
 
-    def parse_pygit2(self):
+    def parse_pygit2(self) -> str | None:
         repo = self.pygit2_repos.get(self.git_dir)
         if repo is None:
             repo = pygit2.Repository(self.git_dir)
+            repo.free()
             self.pygit2_repos[self.git_dir] = repo
 
         d: dict = repo.status()

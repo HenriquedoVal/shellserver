@@ -15,12 +15,12 @@ os = low.os
 try:
     from ssd_checker import is_ssd  # fail fast
 
+    # pywin32 is dep of ssd_checker
+    from pythoncom import CoInitialize
+
     from ctypes import windll
     import string
     import threading as th
-
-    # pywin32 is dep of ssd_checker
-    from pythoncom import CoInitialize
 
     DRIVE_SSD_MAP = {}
 
@@ -48,9 +48,9 @@ class IndexTooBigError(Exception):
 
 
 class Medium(low.Low, packs.Packs):
-    # populate var just for mypy stop complaining
-    git_dir = 'Unreachable'
-    branch = 'Unreachable'
+    git_dir: str
+    branch: str
+    index_tracked: tuple | dict[str, float]
 
     def set_packs(self) -> None:
         """
@@ -113,7 +113,7 @@ class Medium(low.Low, packs.Packs):
             constant = f.read(4)
             version = int.from_bytes(f.read(4), 'big')
             if constant != b'DIRC' or version not in (2, 3):
-                self.index_tracked = None
+                self.index_tracked = tuple()
 
             entries = int.from_bytes(f.read(4), 'big')
             res = {}
@@ -153,7 +153,9 @@ class Medium(low.Low, packs.Packs):
 
         self.index_tracked = res
 
-    def get_split_ignored(self, raw_ignored) -> tuple[list, list]:
+    def get_split_ignored(
+        self, raw_ignored, prepend=None
+    ) -> tuple[list, list]:
         """
         Returns two lists in this order: fixed and relative.
         """
@@ -165,10 +167,20 @@ class Medium(low.Low, packs.Packs):
 
         relative = [
             i for i in raw_ignored
-            if '/' not in i
+            if '/' not in i[:-1]
         ]
 
-        fixed = [i for i in raw_ignored if i not in relative]
+        if prepend is None:
+            fixed = [i.lstrip('/') for i in raw_ignored if i not in relative]
+
+        else:
+            relpath = prepend.removeprefix(
+                self.git_dir + '\\'
+            ).replace('\\', '/', -1)
+
+            fixed = [
+                f'{relpath}/{i}' for i in raw_ignored if i not in relative
+            ]
 
         return fixed, relative
 

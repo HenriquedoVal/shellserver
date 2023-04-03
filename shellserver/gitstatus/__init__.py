@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 This submodule provides an inline view of 'git status'
 """
@@ -8,17 +10,14 @@ import threading as th
 from . import low, high
 
 
-def _populate_status():
+def _populate_status() -> None:
     try:
         status = obj.status()
     except high.FallbackError:
         status = obj.parse_git_status()
 
-        if high.HAS_WATCHDOG:
-
-            # TODO: implement some kind of idleness checker for wathdog thread
-            # before saving cache
-
+        if high.HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
+            high.observer.event_queue.join()
             obj.save_status_in_cache(status)
 
     except Exception:
@@ -29,10 +28,35 @@ def _populate_status():
     status_list[0] = status
 
 
+def _package_status(config) -> str | None:
+    if '--git-linear' in sys.argv:
+        _populate_status()
+        status = status_list[0]
+        if '--test-status' in sys.argv:
+            git_status = obj.parse_git_status()
+            status = f'{status} {git_status}'
+        return status
+
+    global thread
+
+    status_list[0] = '...'
+
+    if not thread.is_alive():
+        thread = th.Thread(target=_populate_status)
+        thread.start()
+
+    if config:
+        thread.join(timeout=config.git_timeout / 1000)
+    else:
+        thread.join(2.5)
+
+    return status_list[0]
+
+
 def gitstatus(
     target_path: str,
-    config: dict = None
-) -> tuple[str, str]:
+    config: dict
+) -> tuple[str | None, str | None]:
     """
     Highest level function that gets an inline version of
     'git status'.
@@ -59,24 +83,11 @@ def gitstatus(
         status = obj.parse_pygit2()
 
     else:
-        global thread
-
-        status_list[0] = '...'
-
-        if not thread.is_alive():
-            thread = th.Thread(target=_populate_status)
-            thread.start()
-
-        if config is not None:
-            thread.join(timeout=config.git_timeout / 1000)
-        else:
-            thread.join(2.5)
-
-        status = status_list[0]
+        status = _package_status(config)
 
     return branch, status
 
 
 obj = high.High()
-status_list = [None]
+status_list: list[str | None] = [None]
 thread = th.Thread(target=_populate_status)

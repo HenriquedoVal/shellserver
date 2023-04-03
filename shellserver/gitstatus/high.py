@@ -33,12 +33,15 @@ if '--git-verbose' not in sys.argv:
 
 class DirEntryWrapper:
     # os.DirEntry is a final class, can't be subclassed
-    __slots__ = 'entry', 'name', 'path'
+    __slots__ = 'entry', 'name', 'path', 'relpath'
 
-    def __init__(self, entry):
+    def __init__(self, entry: os.DirEntry, git_dir: str):
         self.entry = entry
         self.name = entry.name.lower()
         self.path = entry.path.lower()
+        self.relpath = self.path.removeprefix(
+            git_dir + '\\'
+        ).replace('\\', '/', -1)
 
     def stat(self):
         try:
@@ -63,7 +66,12 @@ class DirEntryWrapper:
 
 
 class EventHandler:
-    __slots__ = 'obj_ref', 'git_dir_copy', 'ignore_event_paths', 'flag'
+    __slots__ = (
+        'obj_ref',
+        'git_dir_copy',
+        'ignore_event_paths',
+        'flag'
+    )
 
     def __init__(self, obj_ref):
         self.obj_ref = obj_ref
@@ -78,19 +86,19 @@ class EventHandler:
 
         # flags that dispatch has already been called
         # will be reseted by High obj
-        self.flag = False
+        # starts as True because the first read touches files
+        self.flag = True
 
     def dispatch(self, event) -> None:
         if self.flag:
             return
-
         if event.is_directory:
             return
-
         if event.src_path.endswith(self.ignore_event_paths):
             return
 
         print(event)
+
         self.flag = True
         self.obj_ref.dirs_mtimes[self.git_dir_copy] = time.time()
 
@@ -104,6 +112,7 @@ class High(medium.Medium):
     __slots__ = (
         'git_dir', 'branch',
         'untracked', 'staged', 'modified', 'deleted',
+        'use_cr'
     )
 
     def __init__(self) -> None:
@@ -112,16 +121,19 @@ class High(medium.Medium):
         self.modified = 0
         self.deleted = 0
 
+        self.use_cr = True
+
         self.objects_cache: dict[str, list] = {}
         self.event_handlers: dict[str, EventHandler] = {}
-        self.final_result_cache: dict[str, tuple[float, str]] = {}
+        self.final_result_cache: dict[
+            str, tuple[float | None, str | None]] = {}
         self.dirs_mtimes: dict[str, float] = {}
 
     def init(self, git_dir, branch) -> None:
         self.git_dir = git_dir.lower()
         self.branch = branch
 
-        if HAS_WATCHDOG:
+        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
             handler = self.event_handlers.get(self.git_dir)
             if handler is not None:
                 return
@@ -143,10 +155,10 @@ class High(medium.Medium):
         print('\nGIT_DIR:', self.git_dir)
         print('Branch', self.branch, end=n)
 
-        if HAS_WATCHDOG:
+        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
             cache = self.get_cached_result()
             # valid values are None or str
-            if cache != 0:
+            if not isinstance(cache, int):
                 return cache
 
         try:
@@ -176,7 +188,7 @@ class High(medium.Medium):
         self.modified = 0
         self.deleted = 0
 
-        if HAS_WATCHDOG:
+        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
             self.save_status_in_cache(status_string)
 
         print(end=n)
@@ -185,31 +197,40 @@ class High(medium.Medium):
 
     def get_full_status(
         self,
-        recurse_path,
+        dir_path,
         tree_hash=None,
-        exclude_content=None,
         fixed_prev=None,
-        relative_prev=None
+        relative_prev=None,
+        *,
+        exclude_content=None,
     ) -> None:
         """
-        param `recurse_path`: Initial path from which scan begins.
-                              Will be used recursively
+        param `dir_path`: Initial path from which scan begins.
+                Will be used recursively
         param `tree_hash`: For recursive use only.
         """
 
-        raw_ignored = self.get_gitignore_content(recurse_path)
+        raw_ignored = self.get_gitignore_content(dir_path)
         if exclude_content is not None:
             raw_ignored += exclude_content
 
-        fixed, relative = self.get_split_ignored(raw_ignored)
-        if fixed_prev is not None and relative_prev is not None:
+        # None if it is the first call
+        prepend = None if tree_hash is None else dir_path
+        fixed, relative = self.get_split_ignored(raw_ignored, prepend)
+
+        if fixed_prev is None:
+            clean_fixed = fixed
+        else:
             fixed += fixed_prev
             relative += relative_prev
+            clean_fixed = self.get_clean_fixed(dir_path, fixed)
 
         if '*' in relative:
             return
 
+        # list[tuple[git_type, hash, filename]]
         tree_items_list: list[tuple[str, str, str]] = []
+
         # will happen only in very first call
         if tree_hash is None:
             last_cmmt = self.get_last_commit_hash()
@@ -220,11 +241,18 @@ class High(medium.Medium):
             tree_items_list = self.get_tree_items(tree_hash)
 
         try:
-            directory = os.scandir(recurse_path)
+            directory = os.scandir(dir_path)
 
         # NotADir: if symlink (a file) points to a dir
         except (PermissionError, NotADirectoryError):
             return
+
+        # dict[filename, hash]
+        tracked_directories = {
+            i[2]: i[1]
+            for i in tree_items_list
+            if i[0] == '40000'
+        }
 
         # need to count every file that is found in tree
         # because we don't have a direct relationship
@@ -232,31 +260,35 @@ class High(medium.Medium):
         found_in_tree = 0
         for dir_entry in directory:
 
-            file = DirEntryWrapper(dir_entry)
-
-            relpath = file.path.removeprefix(
-                self.git_dir + '\\'
-            ).replace('\\', '/', -1)
+            file = DirEntryWrapper(dir_entry, self.git_dir)
 
             # 100755(exe) is file
             if file.is_file():
-                if relpath in self.index_tracked:
+                if file.relpath in self.index_tracked:
                     found_in_tree += self.handle_tracked_file(
-                        file, tree_items_list, relpath
+                        file, tree_items_list, file.relpath
                     )
 
-                elif self.is_ignored(file, relpath, fixed, relative):
-                    pass
-
-                else:
-                    print('Untracked:', relpath)
+                elif not self.is_ignored(file, fixed, relative):
+                    print('Untracked:', file.relpath)
                     self.untracked += 1
 
             if file.is_dir():
                 if file.name == '.git':
-                    continue
+                    continue  # or pass
 
-                elif self.is_ignored(file, relpath, fixed, relative):
+                elif file.name in tracked_directories:
+                    found_in_tree += 1
+                    tree_hash = tracked_directories[file.name]
+
+                    self.get_full_status(
+                        file.path,
+                        tree_hash,
+                        fixed_prev=clean_fixed,
+                        relative_prev=relative
+                    )
+
+                elif self.is_ignored(file, fixed, relative):
                     pass
 
                 # check if dir is a submodule
@@ -266,29 +298,14 @@ class High(medium.Medium):
                 ):
                     found_in_tree += 1
 
-                # if dir isn't in tree_items_list
-                elif file.name not in (
-                        i[2] for i in
-                        filter(lambda x: x[0] == '40000', tree_items_list)
-                ):
-                    self.handle_untracked_dir(file.path, fixed, relative)
-
-                # is_dir and is in tree
                 else:
-                    found_in_tree += 1
-
-                    # filter entries with type == 40000
-                    trees = filter(lambda x: x[0] == '40000', tree_items_list)
-                    matching_item = filter(lambda x: x[2] == file.name, trees)
-                    item_tuple = tuple(matching_item)
-                    tree_hash = item_tuple[0][1]
-
-                    self.get_full_status(
-                        file.path,
-                        tree_hash,
-                        fixed_prev=fixed,
-                        relative_prev=relative
+                    _, file_present = self.handle_untracked_dir(
+                        file.path, clean_fixed, relative
                     )
+
+                    if file_present:
+                        print('Untracked:', file.relpath)
+                        self.untracked += 1
 
         # endfor
         self.deleted += len(tree_items_list) - found_in_tree
@@ -314,91 +331,101 @@ class High(medium.Medium):
             self.modified += 1
             return local_found_in_tree
 
-        file_hash = self.get_hash_of_file(file.path)
+        # use_cr: interchangeably switch the use of crlf
+        file_hash = self.get_hash_of_file(file.path, self.use_cr)
         file_hash_in_tree = item[1]
 
         if file_hash_in_tree == file_hash:
             return local_found_in_tree
-        elif file_hash_in_tree == self.get_hash_of_file(file.path,
-                                                        use_cr=True):
+
+        elif file_hash_in_tree == self.get_hash_of_file(
+                file.path, not self.use_cr, True
+        ):
+            self.use_cr = not self.use_cr
             return local_found_in_tree
 
         print('Modified:', relpath)
         self.modified += 1
         return local_found_in_tree
 
-    def handle_untracked_dir(self, dir_path: str, fixed_prev, relative_prev) -> None:
-        # although it is untracked, files here can be staged
+    def handle_untracked_dir(
+        self, dir_path: str, fixed_prev, relative_prev
+    ) -> tuple[int, bool]:
         """
         Handles when `get_full_status` finds untracked directory.
         param `dir_path`: The path of the untracked directory.
         """
         raw_ignored = self.get_gitignore_content(dir_path)
+        fixed, relative = self.get_split_ignored(raw_ignored, dir_path)
 
-        fixed, relative = self.get_split_ignored(raw_ignored)
-        if fixed_prev is not None and relative_prev is not None:
-            fixed += fixed_prev
-            relative += relative_prev
+        fixed += fixed_prev
+        relative += relative_prev
+        clean_fixed = self.get_clean_fixed(dir_path, fixed)
 
         if '*' in relative:
-            return
+            return 0, False
 
         try:
             directory = os.scandir(dir_path)
         except (PermissionError, NotADirectoryError):
-            return
+            return 0, False
 
         sub_dir = []
         for file in directory:
             if file.name == '.git':
                 directory.close()
-                return
-            sub_dir.append(DirEntryWrapper(file))
+                return 0, False
+            sub_dir.append(DirEntryWrapper(file, self.git_dir))
 
-        # if sub_file is in tracked, dont flag untracked dir
-        staged_flag = False
+        file_present = False
+        staged_flag = 0
+        marked_dirs_to_classify: list[DirEntryWrapper] = []
         for sub_file in sub_dir:
-            sub_relpath = sub_file.path.removeprefix(
-                self.git_dir + '\\'
-            ).replace('\\', '/', -1)
 
-            if sub_relpath in self.index_tracked:
-                print('Staged:', sub_relpath)
+            if sub_file.relpath in self.index_tracked:
+                print('Staged:', sub_file.relpath)
                 self.staged += 1
-                staged_flag = True
+                staged_flag += 1
+                file_present = True
+
+            elif self.is_ignored(
+                sub_file, fixed, relative
+            ):
+                continue
+
+            elif sub_file.is_dir():
+                ret = self.handle_untracked_dir(
+                    sub_file.path, clean_fixed, relative
+                )
+
+                staged_flag += ret[0]
+                child_file_present = ret[1]
+
+                if child_file_present:
+                    file_present = True
+                    marked_dirs_to_classify.append(sub_file)
+            else:
+                file_present = True
 
         if staged_flag:  # reiterate searching for untracked
             for sub_file in sub_dir:
-                sub_relpath = sub_file.path.removeprefix(
-                    self.git_dir + '\\'
-                ).replace('\\', '/', -1)
-
                 if (
-                    sub_relpath not in self.index_tracked
+                    sub_file.is_file()
+                    and sub_file.relpath not in self.index_tracked
                     and not self.is_ignored(
-                        sub_file, sub_relpath, fixed, relative
+                        sub_file, fixed, relative
                     )
                 ):
-                    print('Untracked:', sub_relpath)
+                    print('Untracked:', sub_file.relpath)
                     self.untracked += 1
 
-        for sub_file in sub_dir:
-            if sub_file.is_dir():
-                self.handle_untracked_dir(sub_file.path, fixed, relative)
+            for sub_file in marked_dirs_to_classify:
+                print('Untracked:', sub_file.relpath)
+                self.untracked += 1
 
-        if not staged_flag:
-            for sub_file in sub_dir:
-                if sub_file.is_file():
-                    sub_relpath = sub_file.path.removeprefix(
-                        self.git_dir + '\\'
-                    ).replace('\\', '/', -1)
+            file_present = False
 
-                    if self.is_ignored(sub_file, sub_relpath, fixed, relative):
-                        continue
-
-                    print('Untracked:', file.path)  # parent file
-                    self.untracked += 1
-                    return
+        return staged_flag, file_present
 
     def get_tree_items(self, hash_: str, is_cmmt=False) -> list:
         """
@@ -459,17 +486,37 @@ class High(medium.Medium):
 
         return tree_items_list
 
-    def is_ignored(self, file, relpath, fixed, relative) -> bool:
-        if any(fnmatchcase(file.name, pattern) for pattern in relative):
-            return True
+    def get_clean_fixed(self, dir_path, fixed) -> list:
+        dir_path = dir_path.removeprefix(
+            self.git_dir + '\\'
+        ).replace('\\', '/', -1)
 
-        for pattern in fixed:
+        depth = dir_path.count('/')
+        return [
+            pattern for pattern in fixed
+            if pattern[:-1].count('/') > depth
+            or '**' in pattern
+        ]
+
+    def is_ignored(self, file: DirEntryWrapper, fixed, relative) -> bool:
+        is_dir = file.is_dir()
+        for pattern in relative:
+            if pattern[-1] == '/' and not is_dir:
+                continue
             if fnmatchcase(
-                relpath + '/' if pattern.endswith('/') else relpath, pattern
+                file.name + '/' if pattern[-1] == '/' else file.name,
+                pattern
             ):
-                fixed.remove(pattern)
                 return True
 
+        for pattern in fixed:
+            if pattern[-1] == '/' and not is_dir:
+                continue
+            if fnmatchcase(
+                file.relpath + '/' if pattern[-1] == '/' else file.relpath,
+                pattern
+            ):
+                return True
         return False
 
     def get_cached_result(self) -> int | str | None:
@@ -486,7 +533,9 @@ class High(medium.Medium):
         return 0
 
     def save_status_in_cache(self, status: str | None) -> None:
+        observer.event_queue.join()
+        # dont care if it's None
         mtime = self.dirs_mtimes.get(self.git_dir)
         self.final_result_cache[self.git_dir] = mtime, status
-        self.event_handlers.get(self.git_dir).flag = False
+        self.event_handlers[self.git_dir].flag = False
         print('Cache saved')

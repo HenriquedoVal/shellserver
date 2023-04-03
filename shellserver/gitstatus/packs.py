@@ -7,6 +7,7 @@ Low level operations on packfiles.
 import os
 import zlib
 from io import BytesIO
+from collections import deque
 
 
 class Packs:
@@ -42,8 +43,8 @@ class Packs:
                 return hash_ in cache[1]
             return cache[1].get(hash_)
 
-        hashes = []
-        offsets = []
+        hashes: deque[str] = deque()
+        offsets: deque[int] = deque()
 
         with open(idx_path, 'rb') as file:
 
@@ -72,10 +73,12 @@ class Packs:
             for _ in range(total_files):
                 offsets.append(int.from_bytes(file.read(4), 'big'))
 
-            new_cache = dict(zip(hashes, offsets))
-            self.packs_index_cache[idx_path] = mtime, new_cache
+        new_cache = dict(zip(hashes, offsets))
+        self.packs_index_cache[idx_path] = mtime, new_cache
 
-            return self.search_idx(idx_path, hash_, rt_offset)
+        if not rt_offset:
+            return hash_ in new_cache
+        return new_cache.get(hash_)
 
     def get_content_by_offset(
             self, pack_path: str, offset: int
@@ -94,12 +97,12 @@ class Packs:
         int_ = int.from_bytes(file.read(1), 'big')
         binary = f'{int_:b}'.zfill(8)
         type_ = binary[1:4]
-        obj_size = int_ & 0x0f
-        bit_shift = 4
 
         if type_ == '110':  # delta type
             return None
 
+        obj_size = int_ & 0x0f
+        bit_shift = 4
         msb = binary.startswith('1')
         # size = binary[4:]
 

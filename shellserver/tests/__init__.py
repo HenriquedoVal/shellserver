@@ -10,7 +10,7 @@ from ..gitstatus import low
 from ..gitstatus import high
 
 
-# the thread use in this would break many test
+# the thread use in this would break many tests
 # for it takes time
 high.HAS_WATCHDOG = False
 
@@ -267,7 +267,7 @@ class TestGitstatusLowLoose(unittest.TestCase):
 
     def test_loose_parse_git_status(self):
         tested = obj.parse_git_status()
-        self.assertEqual(tested, '')
+        self.assertIsNone(tested)
 
 
 class TestGitstatusLowPacked(unittest.TestCase):
@@ -344,7 +344,7 @@ class TestGitstatusLowPacked(unittest.TestCase):
 
     def test_packed_parse_git_status(self):
         tested = obj.parse_git_status()
-        self.assertEqual(tested, '')
+        self.assertIsNone(tested)
 
 
 class TestGitstatusMediumEmpty(unittest.TestCase):
@@ -590,7 +590,7 @@ class TestGitstatusHighStatus(unittest.TestCase):
 
         popen(f'git -C {self.temp} commit -m "some"')
         git = obj.parse_git_status()
-        self.assertEqual(git, '')
+        self.assertIsNone(git)
         self.assertIsNone(obj.status())
 
         with open(file_path, 'a') as file:
@@ -609,12 +609,12 @@ class TestGitstatusHighStatus(unittest.TestCase):
         popen(f'git -C {self.temp} add .')
         popen(f'git -C {self.temp} commit -m "other"')
         git = obj.parse_git_status()
-        self.assertEqual(git, '')
+        self.assertIsNone(git)
         self.assertIsNone(obj.status())
 
         popen(f'git -C {self.temp} gc')
         git = obj.parse_git_status()
-        self.assertEqual(git, '')
+        self.assertIsNone(git)
         self.assertIsNone(obj.status())
 
 
@@ -697,19 +697,20 @@ class TestGitstatusInit(unittest.TestCase):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_gitstatus(self):
-        tested = gitstatus(self.temp)
+        config = {}
+        tested = gitstatus(self.temp, config)
         self.assertEqual(tested, (None, None))
 
         popen(f'git init {self.temp}')
-        tested = gitstatus(self.temp)
+        tested = gitstatus(self.temp, config)
         self.assertEqual(tested, ('master', None))
 
         popen(f'git -C {self.temp} branch -M main')
-        tested = gitstatus(self.temp)
+        tested = gitstatus(self.temp, config)
         self.assertEqual(tested, ('main', None))
 
         ni(self.temp, 'file.txt')
-        tested = gitstatus(self.temp)
+        tested = gitstatus(self.temp, config)
         self.assertEqual(tested, ('main', '?1'))
 
 
@@ -811,14 +812,39 @@ class TestGitstatusTDD2(unittest.TestCase):
     def test_status_ignore(self):
         gitignore = self.temp + '/.gitignore'
         with open(gitignore, 'w') as ignore:
-            # trailing slash
+            # ending slash
             ignore.write('some/\n')
         ni(self.temp, 'some/file.txt')
         ni(self.temp, 'other/some')
         git = obj.parse_git_status()
         self.assertEqual(git, '??2')
-        tested = obj.status()
-        self.assertEqual(tested, '?2')
+        tested1 = obj.status()
+
+        with open(gitignore, 'a') as ignore:
+            # initial slash
+            ignore.write('/other\n')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??1')
+        tested2 = obj.status()
+
+        with open(gitignore, 'a') as ignore:
+            ignore.write('other/\n')
+        ni(self.temp, 'dira/dirb/other/anything.txt')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??1')
+        tested3 = obj.status()
+
+        with open(gitignore, 'a') as ignore:
+            ignore.write('anya/anyb/\n')
+        ni(self.temp, 'random/anya/anyb/anything.txt')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??2')
+        tested4 = obj.status()
+
+        self.assertEqual(tested1, '?2')
+        self.assertEqual(tested2, '?1')
+        self.assertEqual(tested3, '?1')
+        self.assertEqual(tested4, '?2')
 
 
 class TestGitstatusTDD3(unittest.TestCase):
@@ -918,12 +944,12 @@ class TestGitstatusTDD6(unittest.TestCase):
         with open(self.temp + '/some/.gitignore', 'w') as f:
             f.write('*\n')
         git = obj.parse_git_status()
-        self.assertEqual(git, '')
+        self.assertIsNone(git)
         self.assertIsNone(obj.status())
 
         ni(self.temp, 'other/dir/abcd/.gitignore')
         with open(self.temp + '/other/dir/abcd/.gitignore', 'w') as f:
             f.write('*\n')
         git = obj.parse_git_status()
-        self.assertEqual(git, '')
+        self.assertIsNone(git)
         self.assertIsNone(obj.status())
