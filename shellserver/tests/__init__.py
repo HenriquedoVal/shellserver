@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from ..gitstatus.__init__ import gitstatus
+from ..gitstatus import main
 from ..gitstatus import low
 from ..gitstatus import high
 
@@ -14,7 +14,7 @@ from ..gitstatus import high
 # for it takes time
 high.HAS_WATCHDOG = False
 
-obj = high.High()
+obj = main.obj
 
 
 def popen(cmd: str) -> bytes:
@@ -698,19 +698,19 @@ class TestGitstatusInit(unittest.TestCase):
 
     def test_gitstatus(self):
         config = {}
-        tested = gitstatus(self.temp, config)
+        tested = main.gitstatus(self.temp, config)
         self.assertEqual(tested, (None, None))
 
         popen(f'git init {self.temp}')
-        tested = gitstatus(self.temp, config)
+        tested = main.gitstatus(self.temp, config)
         self.assertEqual(tested, ('master', None))
 
         popen(f'git -C {self.temp} branch -M main')
-        tested = gitstatus(self.temp, config)
+        tested = main.gitstatus(self.temp, config)
         self.assertEqual(tested, ('main', None))
 
         ni(self.temp, 'file.txt')
-        tested = gitstatus(self.temp, config)
+        tested = main.gitstatus(self.temp, config)
         self.assertEqual(tested, ('main', '?1'))
 
 

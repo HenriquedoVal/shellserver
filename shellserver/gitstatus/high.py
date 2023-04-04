@@ -177,7 +177,11 @@ class High(medium.Medium):
             print(pat)
         print()
 
-        self.get_full_status(self.git_dir, exclude_content=exclude_content)
+        last_cmmt = self.get_last_commit_hash()
+
+        self.set_full_status(
+            self.git_dir, last_cmmt, exclude_content=exclude_content
+        )
 
         status_string = self.get_status_string(
             (self.untracked, self.staged, self.modified, self.deleted)
@@ -195,10 +199,10 @@ class High(medium.Medium):
 
         return status_string
 
-    def get_full_status(
+    def set_full_status(
         self,
         dir_path,
-        tree_hash=None,
+        tree_hash,
         fixed_prev=None,
         relative_prev=None,
         *,
@@ -210,20 +214,11 @@ class High(medium.Medium):
         param `tree_hash`: For recursive use only.
         """
 
-        raw_ignored = self.get_gitignore_content(dir_path)
-        if exclude_content is not None:
-            raw_ignored += exclude_content
+        first_call = exclude_content is not None
 
-        # None if it is the first call
-        prepend = None if tree_hash is None else dir_path
-        fixed, relative = self.get_split_ignored(raw_ignored, prepend)
-
-        if fixed_prev is None:
-            clean_fixed = fixed
-        else:
-            fixed += fixed_prev
-            relative += relative_prev
-            clean_fixed = self.get_clean_fixed(dir_path, fixed)
+        fixed, relative, clean_fixed = self.get_ignored_lists(
+            dir_path, fixed_prev, relative_prev, exclude_content
+        )
 
         if '*' in relative:
             return
@@ -231,21 +226,10 @@ class High(medium.Medium):
         # list[tuple[git_type, hash, filename]]
         tree_items_list: list[tuple[str, str, str]] = []
 
-        # will happen only in very first call
-        if tree_hash is None:
-            last_cmmt = self.get_last_commit_hash()
-            if last_cmmt is not None:
-                tree_items_list = self.get_tree_items(last_cmmt, True)
-        # all recursive calls will fall here
-        else:
+        if first_call and tree_hash is not None:
+            tree_items_list = self.get_tree_items(tree_hash, True)
+        elif tree_hash:
             tree_items_list = self.get_tree_items(tree_hash)
-
-        try:
-            directory = os.scandir(dir_path)
-
-        # NotADir: if symlink (a file) points to a dir
-        except (PermissionError, NotADirectoryError):
-            return
 
         # dict[filename, hash]
         tracked_directories = {
@@ -253,6 +237,13 @@ class High(medium.Medium):
             for i in tree_items_list
             if i[0] == '40000'
         }
+
+        try:
+            directory = os.scandir(dir_path)
+
+        # NotADir: if symlink (a file) points to a dir
+        except (PermissionError, NotADirectoryError):
+            return
 
         # need to count every file that is found in tree
         # because we don't have a direct relationship
@@ -281,7 +272,7 @@ class High(medium.Medium):
                     found_in_tree += 1
                     tree_hash = tracked_directories[file.name]
 
-                    self.get_full_status(
+                    self.set_full_status(
                         file.path,
                         tree_hash,
                         fixed_prev=clean_fixed,
@@ -352,15 +343,12 @@ class High(medium.Medium):
         self, dir_path: str, fixed_prev, relative_prev
     ) -> tuple[int, bool]:
         """
-        Handles when `get_full_status` finds untracked directory.
+        Handles when `set_full_status` finds untracked directory.
         param `dir_path`: The path of the untracked directory.
         """
-        raw_ignored = self.get_gitignore_content(dir_path)
-        fixed, relative = self.get_split_ignored(raw_ignored, dir_path)
-
-        fixed += fixed_prev
-        relative += relative_prev
-        clean_fixed = self.get_clean_fixed(dir_path, fixed)
+        fixed, relative, clean_fixed = self.get_ignored_lists(
+            dir_path, fixed_prev, relative_prev
+        )
 
         if '*' in relative:
             return 0, False
@@ -486,18 +474,6 @@ class High(medium.Medium):
 
         return tree_items_list
 
-    def get_clean_fixed(self, dir_path, fixed) -> list:
-        dir_path = dir_path.removeprefix(
-            self.git_dir + '\\'
-        ).replace('\\', '/', -1)
-
-        depth = dir_path.count('/')
-        return [
-            pattern for pattern in fixed
-            if pattern[:-1].count('/') > depth
-            or '**' in pattern
-        ]
-
     def is_ignored(self, file: DirEntryWrapper, fixed, relative) -> bool:
         is_dir = file.is_dir()
         for pattern in relative:
@@ -517,6 +493,7 @@ class High(medium.Medium):
                 pattern
             ):
                 return True
+
         return False
 
     def get_cached_result(self) -> int | str | None:

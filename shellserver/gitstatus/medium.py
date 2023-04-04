@@ -232,3 +232,36 @@ class Medium(low.Low, packs.Packs):
             last_cmmt = self.get_last_commit_packed()
 
         return last_cmmt
+
+    def get_ignored_lists(
+        self, dir_path, fixed_prev, relative_prev, exclude_content=None
+    ) -> tuple[list, list, list]:
+        first_call = exclude_content is not None
+
+        raw_ignored = self.get_gitignore_content(dir_path)
+        if first_call:
+            raw_ignored += exclude_content
+
+        prepend = None if first_call else dir_path
+        fixed, relative = self.get_split_ignored(raw_ignored, prepend)
+
+        if fixed_prev is None:
+            clean_fixed = fixed
+        else:
+            fixed += fixed_prev
+            relative += relative_prev
+            clean_fixed = self.get_clean_fixed(dir_path, fixed)
+
+        return fixed, relative, clean_fixed
+
+    def get_clean_fixed(self, dir_path, fixed) -> list:
+        dir_path = dir_path.removeprefix(
+            self.git_dir + '\\'
+        ).replace('\\', '/', -1)
+
+        depth = dir_path.count('/')
+        return [
+            pattern for pattern in fixed
+            if pattern[:-1].count('/') > depth
+            or '**' in pattern
+        ]

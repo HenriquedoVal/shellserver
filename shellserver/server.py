@@ -20,7 +20,8 @@ from dataclasses import dataclass
 
 from win_basic_tools import Ls
 
-from . import histdb, theme, gitstatus
+from . import histdb, theme
+from .gitstatus.main import gitstatus
 from .classes import DirCache, Dispatcher
 from .style import style
 
@@ -168,7 +169,7 @@ def scan(entry, addr):
     brackets = []
     after_brackets = []
 
-    branch, status = gitstatus.gitstatus(target_dir, config)
+    branch, status = gitstatus(target_dir, config)
     if branch is not None:
         brackets.append(f'Branch;{branch}')
         if status:
