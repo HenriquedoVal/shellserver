@@ -68,7 +68,7 @@ class Low:
 
     __slots__ = 'prev_read'
 
-    def get_info_packs_content(self) -> list:  # [str]:
+    def get_info_packs_content(self) -> list[str]:
         """
         Checks the existence of a 'packs' file in git/objects
         and return its content.
@@ -94,7 +94,7 @@ class Low:
 
         return content
 
-    def get_gitignore_content(self, dir_path) -> list:
+    def get_gitignore_content(self, dir_path: str) -> list[str]:
         """
         Searhes for a .gitignore in the same level of `dir_path`.
         return: list: Content of .gitignore by line.
@@ -155,7 +155,7 @@ class Low:
 
         return content
 
-    def get_exclude_content(self) -> list:
+    def get_exclude_content(self) -> list[str]:
         """
         Checks the existence of a 'exclude' file inside .git/info
         and return its content.
@@ -182,8 +182,8 @@ class Low:
 
     def get_hash_of_file(
         self, file_path: bytes | str,
-        use_cr=False,
-        use_prev_read=False
+        use_cr: bool = False,
+        use_prev_read: bool = False
     ) -> str:
         """
         Get the SHA1 hash in the same way Git would do.
@@ -282,8 +282,8 @@ class Low:
         return ret_value if ret_value else None
 
     def parse_tree_object(
-            self, data: bytes, from_pack=False
-    ) -> list:
+        self, data: bytes, from_pack: bool = False
+    ) -> list[tuple[str, str, str]]:
         """
         Parses the content of a git tree object and returns a list
         of its values
@@ -333,7 +333,7 @@ class Low:
             repo.free()
             self.pygit2_repos[self.git_dir] = repo
 
-        d: dict = repo.status()
+        d: dict[str, int] = repo.status()
 
         unt = sta = mod = del_ = 0
         for value in d.values():

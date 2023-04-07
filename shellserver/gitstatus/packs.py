@@ -20,7 +20,7 @@ class Packs:
             self,
             idx_path: str,
             hash_: str,
-            rt_offset=False
+            rt_offset: bool = False
     ) -> bool | int | None:
         """
         Searches given `idx_path` for `hash_`.
@@ -122,7 +122,7 @@ class Packs:
         """
         return pack.removesuffix('pack') + 'idx'
 
-    def _get_buffer(self, path) -> BytesIO:
+    def _get_buffer(self, path: str) -> BytesIO:
         mtime = os.stat(path, follow_symlinks=False).st_mtime
         cache = self.bytes_io_cache.get(path)
         if cache and cache[0] == mtime:

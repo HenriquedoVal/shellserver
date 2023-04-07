@@ -10,6 +10,10 @@ import threading as th
 from . import low, high
 
 
+class Config:
+    git_timeout: int
+
+
 def _populate_status() -> None:
     try:
         status = obj.status()
@@ -28,7 +32,7 @@ def _populate_status() -> None:
     status_list[0] = status
 
 
-def _package_status(config) -> str | None:
+def _package_status(config: Config) -> str | None:
     if '--git-linear' in sys.argv:
         _populate_status()
         status = status_list[0]
@@ -55,7 +59,7 @@ def _package_status(config) -> str | None:
 
 def gitstatus(
     target_path: str,
-    config: dict
+    config: Config
 ) -> tuple[str | None, str | None]:
     """
     Highest level function that gets an inline version of
@@ -89,5 +93,5 @@ def gitstatus(
 
 
 status_list: list[str | None] = [None]
-obj = high.High()
+obj = high.High(raise_subprocess=True)
 thread = th.Thread(target=_populate_status)

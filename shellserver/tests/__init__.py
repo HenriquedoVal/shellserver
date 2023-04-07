@@ -841,10 +841,34 @@ class TestGitstatusTDD2(unittest.TestCase):
         self.assertEqual(git, '??2')
         tested4 = obj.status()
 
+        # created new file but whole tree is ignored
+        # thats why there is no new untracked
+        nest_ign_path = self.temp + '/random/anya/.gitignore'
+        with open(nest_ign_path, 'w') as f:
+            f.write('/anything.txt\n')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??2')
+        tested5 = obj.status()
+
+        with open(nest_ign_path, 'a') as f:
+            f.write('/.gitignore\n')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??2')
+        tested6 = obj.status()
+
+        with open(nest_ign_path, 'a') as f:
+            f.write('/anya\n')
+        git = obj.parse_git_status()
+        self.assertEqual(git, '??2')
+        tested7 = obj.status()
+
         self.assertEqual(tested1, '?2')
         self.assertEqual(tested2, '?1')
         self.assertEqual(tested3, '?1')
         self.assertEqual(tested4, '?2')
+        self.assertEqual(tested5, '?2')
+        self.assertEqual(tested6, '?2')
+        self.assertEqual(tested7, '?2')
 
 
 class TestGitstatusTDD3(unittest.TestCase):

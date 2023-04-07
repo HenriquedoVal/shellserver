@@ -6,11 +6,10 @@ Module with functions considered of medium level of abstraction
 """
 
 import sys
+import os
 
 from . import low
 from . import packs
-
-os = low.os
 
 try:
     from ssd_checker import is_ssd  # fail fast
@@ -22,9 +21,9 @@ try:
     import string
     import threading as th
 
-    DRIVE_SSD_MAP = {}
+    DRIVE_SSD_MAP: dict[str, bool] = {}
 
-    def populate(letter):
+    def populate(letter: str) -> None:
         CoInitialize()
         DRIVE_SSD_MAP[letter] = is_ssd(letter)
 
@@ -50,7 +49,7 @@ class IndexTooBigError(Exception):
 class Medium(low.Low, packs.Packs):
     git_dir: str
     branch: str
-    index_tracked: tuple | dict[str, float]
+    index_tracked: dict[str, float]
 
     def set_packs(self) -> None:
         """
@@ -96,16 +95,16 @@ class Medium(low.Low, packs.Packs):
 
         index_path = os.path.join(self.git_dir, '.git/index')
         if not os.path.exists(index_path):
-            self.index_tracked = tuple()
+            self.index_tracked = {}
             return
 
         with open(index_path, 'rb') as f:
 
-            def read_str_until(delim):
-                ret = []
+            def read_str_until(delim: bytes) -> str:
+                ret: list[bytes] = []
                 while True:
                     b = f.read(1)
-                    if b == '' or b == delim:
+                    if b == b'' or b == delim:
                         return b"".join(ret).decode()
 
                     ret.append(b)
@@ -113,7 +112,7 @@ class Medium(low.Low, packs.Packs):
             constant = f.read(4)
             version = int.from_bytes(f.read(4), 'big')
             if constant != b'DIRC' or version not in (2, 3):
-                self.index_tracked = tuple()
+                self.index_tracked = {}
 
             entries = int.from_bytes(f.read(4), 'big')
             res = {}
@@ -139,7 +138,7 @@ class Medium(low.Low, packs.Packs):
                     name = f.read(namelen).decode()
                     entrylen += namelen
                 else:
-                    name = read_str_until('\x00')
+                    name = read_str_until(b'\x00')
                     entrylen += 1
 
                 res[name.lower()] = mtime
@@ -154,8 +153,8 @@ class Medium(low.Low, packs.Packs):
         self.index_tracked = res
 
     def get_split_ignored(
-        self, raw_ignored, prepend=None
-    ) -> tuple[list, list]:
+        self, raw_ignored: list[str], prepend: None | str = None
+    ) -> tuple[list[str], list[str]]:
         """
         Returns two lists in this order: fixed and relative.
         """
@@ -234,27 +233,81 @@ class Medium(low.Low, packs.Packs):
         return last_cmmt
 
     def get_ignored_lists(
-        self, dir_path, fixed_prev, relative_prev, exclude_content=None
-    ) -> tuple[list, list, list]:
+        self,
+        dir_path: str,
+        relpath: str | None,
+        fixed_prev: list[str] | None,
+        relative_prev: list[str] | None,
+        exclude_content: list[str] | None = None
+    ) -> tuple[list[str], list[str], list[str]]:
         first_call = exclude_content is not None
 
         raw_ignored = self.get_gitignore_content(dir_path)
-        if first_call:
+        if isinstance(exclude_content, list):
             raw_ignored += exclude_content
 
         prepend = None if first_call else dir_path
         fixed, relative = self.get_split_ignored(raw_ignored, prepend)
 
-        if fixed_prev is None:
-            clean_fixed = fixed
-        else:
+        if isinstance(fixed_prev, list) and isinstance(relative_prev, list):
             fixed += fixed_prev
             relative += relative_prev
             clean_fixed = self.get_clean_fixed(dir_path, fixed)
+        else:
+            clean_fixed = fixed
 
         return fixed, relative, clean_fixed
+        #
+        # depth = relpath.count('/') + 1 if relpath else 0
+        # raw_ignored = self.get_gitignore_content(dir_path)
+        #
+        # if exclude_content:
+        #     raw_ignored.extend(exclude_content)
+        #
+        # next_list = self.cached_fixed.get(depth + 1)
+        # if not raw_ignored and next_list is not None:
+        #     return (
+        #         self.cached_relative,
+        #         self.cached_fixed[depth],
+        #         next_list
+        #     )
+        #
+        # if raw_ignored:
+        #     prepend = None if not depth else dir_path
+        #     fixed, relative = self.get_split_ignored(raw_ignored, prepend)
 
-    def get_clean_fixed(self, dir_path, fixed) -> list:
+        #
+        # depth = relpath.count('/') + 1 if relpath else 0
+        # raw_ignored = self.get_gitignore_content(dir_path)
+        #
+        # if depth == 0:  # so we dont fall on next elif
+        #     # get lists, save to cache, return lists
+        #     raw_ignored.extend(exclude_content)
+        #     fixed, relative = self.get_split_ignored(raw_ignored, prepend)
+        #     self.cached_fixed[depth] = fixed
+        #     self.cached_relative = relative
+        #     self.max_depth = depth
+        #     return fixed, relative
+        #
+        # elif raw_ignored:
+        #     # sign path to always compute igored list
+        #     # (sign the parent and check if dir_path endswith)
+        #     # compute list and return them
+        #     dirname, _ = dir_path.rsplit('/', maxsplit=1)
+        #     self.new_ignore_paths.append(dirname)
+        #     fixed, relative = self.get_split_ignored(raw_ignored, prepend)
+        #     fixed.extend(self.cached_fixed[self.max_depth])
+        #
+        # elif dir_path.startswith(tuple(self.new_ignore_paths)):
+        #     # compute lists, return them
+        # else:
+        #     # return cached
+        #     return (
+        #         self.cached_relative,
+        #         self.cached_fixed[depth],
+        #     )
+
+    def get_clean_fixed(self, dir_path: str, fixed: list[str]) -> list[str]:
         dir_path = dir_path.removeprefix(
             self.git_dir + '\\'
         ).replace('\\', '/', -1)

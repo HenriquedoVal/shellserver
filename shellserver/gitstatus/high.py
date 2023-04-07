@@ -6,62 +6,67 @@ and/or complexity.
 """
 
 from fnmatch import fnmatchcase
+# import multiprocessing as mp
+import os
+# import pickle
+import sys
 import time
+from typing import Any
 
-from . import low
 from . import medium
 
 try:
     from watchdog.observers import Observer
+    from watchdog.events import FileSystemEvent
     observer = Observer()
     observer.start()
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
 
-os = low.os  # os module
-sys = medium.sys
-
-
 n = '\n\n'
 if '--git-verbose' not in sys.argv:
     # sending to stderr would break tests
     # and I have already messed with sys.stdout in server.py
-    def print(*args, **kwargs):
+    def print(*args: Any, **kwargs: Any) -> None:
         pass
 
 
 class DirEntryWrapper:
+    counter = 0
     # os.DirEntry is a final class, can't be subclassed
     __slots__ = 'entry', 'name', 'path', 'relpath'
 
-    def __init__(self, entry: os.DirEntry, git_dir: str):
+    def __init__(self, entry: os.DirEntry[Any], git_dir: str):
         self.entry = entry
         self.name = entry.name.lower()
         self.path = entry.path.lower()
         self.relpath = self.path.removeprefix(
             git_dir + '\\'
         ).replace('\\', '/', -1)
+        DirEntryWrapper.counter += 1
 
-    def stat(self):
+    def stat(self) -> os.stat_result:
         try:
             return self.entry.stat()
         except PermissionError:
             return self.entry.stat(follow_symlinks=False)
 
-    def is_file(self):
+    def is_file(self) -> bool:
         try:
             return self.entry.is_file()
         except PermissionError:
             return self.entry.is_file(follow_symlinks=False)
 
-    def is_dir(self):
+    def is_dir(self) -> bool:
         try:
             return self.entry.is_dir()
         except PermissionError:
             return self.entry.is_dir(follow_symlinks=False)
+        except BaseException:
+            raise
 
-    def is_symlink(self):
+    def is_symlink(self) -> bool:
         return self.entry.is_symlink()
 
 
@@ -73,7 +78,7 @@ class EventHandler:
         'flag'
     )
 
-    def __init__(self, obj_ref):
+    def __init__(self, obj_ref: High):
         self.obj_ref = obj_ref
         self.git_dir_copy = obj_ref.git_dir
         self.ignore_event_paths = (
@@ -89,7 +94,7 @@ class EventHandler:
         # starts as True because the first read touches files
         self.flag = True
 
-    def dispatch(self, event) -> None:
+    def dispatch(self, event: FileSystemEvent) -> None:
         if self.flag:
             return
         if event.is_directory:
@@ -107,15 +112,40 @@ class FallbackError(Exception):
     pass
 
 
+# def _subprocess_entry_point() -> None:
+#     sys.__stdout__.write('dual-proc\n')
+#     obj = High()
+#     while 1:
+#
+#         prot, *data = obj.receive()
+#
+#         if prot == 0:
+#             obj.init(*data)
+#         elif prot == 1:
+#             obj.index_tracked, obj.packs_list = data
+#         elif prot == 2:
+#             obj.set_full_status(*data)
+#         elif prot == 3:
+#             obj.send(
+#                 obj.untracked, obj.staged, obj.modified, obj.deleted,
+#                 to=MAIN_PORT
+#             )
+#             obj.untracked = 0
+#             obj.staged = 0
+#             obj.modified = 0
+#             obj.deleted = 0
+
+
 class High(medium.Medium):
 
     __slots__ = (
         'git_dir', 'branch',
         'untracked', 'staged', 'modified', 'deleted',
-        'use_cr'
+        'use_cr',
+        # 'sock', 'is_main', 'switch', 'dual'
     )
 
-    def __init__(self) -> None:
+    def __init__(self, raise_subprocess: bool = False) -> None:
         self.untracked = 0
         self.staged = 0
         self.modified = 0
@@ -123,13 +153,32 @@ class High(medium.Medium):
 
         self.use_cr = True
 
-        self.objects_cache: dict[str, list] = {}
+        #                       hash : tree_items_list
+        self.objects_cache: dict[str, list[tuple[str, str, str]]] = {}
         self.event_handlers: dict[str, EventHandler] = {}
         self.final_result_cache: dict[
             str, tuple[float | None, str | None]] = {}
         self.dirs_mtimes: dict[str, float] = {}
 
-    def init(self, git_dir, branch) -> None:
+        # self.dual = '--dual-proc' in sys.argv
+        # if not self.dual:
+        #     return
+        #
+        # self.switch = True
+        # self.is_main = raise_subprocess
+        #
+        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # if not self.is_main:
+        #     self.sock.bind(('localhost', SUBPROCESS_PORT))
+        # else:
+        #     mp.Process(
+        #         target=_subprocess_entry_point,
+        #         daemon=True
+        #     ).start()
+        #
+        #     self.sock.bind(('localhost', MAIN_PORT))
+
+    def init(self, git_dir: str, branch: str) -> None:
         self.git_dir = git_dir.lower()
         self.branch = branch
 
@@ -144,6 +193,9 @@ class High(medium.Medium):
             observer.schedule(
                 handler, self.git_dir, recursive=True
             )
+
+        # if self.dual and self.is_main:
+        #     self.send(0, self.git_dir, branch, to=SUBPROCESS_PORT)
 
     def status(self) -> str | None:
         """
@@ -177,11 +229,25 @@ class High(medium.Medium):
             print(pat)
         print()
 
+        # if self.dual:
+        #     self.send(
+        #         1, self.index_tracked, self.packs_list, to=SUBPROCESS_PORT
+        #     )
+
         last_cmmt = self.get_last_commit_hash()
 
         self.set_full_status(
             self.git_dir, last_cmmt, exclude_content=exclude_content
         )
+
+        # if self.dual:
+        #     self.send(3, to=SUBPROCESS_PORT)
+        #
+        #     unt, sta, mod, del_ = self.receive()
+        #     self.untracked += unt
+        #     self.staged += sta
+        #     self.modified += mod
+        #     self.deleted += del_
 
         status_string = self.get_status_string(
             (self.untracked, self.staged, self.modified, self.deleted)
@@ -195,18 +261,41 @@ class High(medium.Medium):
         if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
             self.save_status_in_cache(status_string)
 
-        print(end=n)
+        print('Entries classified:', DirEntryWrapper.counter)
 
         return status_string
 
+    def load_balancer(
+        self,
+        dir_path: str,
+        tree_hash: str,
+        relpath: str,
+        fixed_prev: list[str],
+        relative_prev: list[str]
+    ) -> None:
+
+        # if self.dual:
+        #     self.switch = not self.switch
+        #     if self.is_main and self.switch:
+        #         self.send(
+        #             2, dir_path, tree_hash, fixed_prev, relative_prev,
+        #             to=SUBPROCESS_PORT
+        #         )
+        #         return
+
+        self.set_full_status(
+            dir_path, tree_hash, relpath, fixed_prev, relative_prev
+        )
+
     def set_full_status(
         self,
-        dir_path,
-        tree_hash,
-        fixed_prev=None,
-        relative_prev=None,
+        dir_path: str,
+        tree_hash: str | None,
+        relpath: str | None =  None,
+        fixed_prev: list[str] | None = None,
+        relative_prev: list[str] | None = None,
         *,
-        exclude_content=None,
+        exclude_content: list[str] | None = None,
     ) -> None:
         """
         param `dir_path`: Initial path from which scan begins.
@@ -217,7 +306,7 @@ class High(medium.Medium):
         first_call = exclude_content is not None
 
         fixed, relative, clean_fixed = self.get_ignored_lists(
-            dir_path, fixed_prev, relative_prev, exclude_content
+            dir_path, relpath, fixed_prev, relative_prev, exclude_content
         )
 
         if '*' in relative:
@@ -272,9 +361,10 @@ class High(medium.Medium):
                     found_in_tree += 1
                     tree_hash = tracked_directories[file.name]
 
-                    self.set_full_status(
+                    self.load_balancer(
                         file.path,
                         tree_hash,
+                        file.relpath,
                         fixed_prev=clean_fixed,
                         relative_prev=relative
                     )
@@ -291,7 +381,7 @@ class High(medium.Medium):
 
                 else:
                     _, file_present = self.handle_untracked_dir(
-                        file.path, clean_fixed, relative
+                        file.path, file.relpath, clean_fixed, relative
                     )
 
                     if file_present:
@@ -301,7 +391,12 @@ class High(medium.Medium):
         # endfor
         self.deleted += len(tree_items_list) - found_in_tree
 
-    def handle_tracked_file(self, file, tree_items_list, relpath) -> int:
+    def handle_tracked_file(
+        self,
+        file: DirEntryWrapper,
+        tree_items_list: list[tuple[str, str, str]],
+        relpath: str
+    ) -> int:
         """Classifies the file, returns if file was found_in_tree"""
         local_found_in_tree = 0
 
@@ -340,14 +435,18 @@ class High(medium.Medium):
         return local_found_in_tree
 
     def handle_untracked_dir(
-        self, dir_path: str, fixed_prev, relative_prev
+        self,
+        dir_path: str,
+        relpath: str,
+        fixed_prev: list[str],
+        relative_prev: list[str]
     ) -> tuple[int, bool]:
         """
         Handles when `set_full_status` finds untracked directory.
         param `dir_path`: The path of the untracked directory.
         """
         fixed, relative, clean_fixed = self.get_ignored_lists(
-            dir_path, fixed_prev, relative_prev
+            dir_path, relpath, fixed_prev, relative_prev
         )
 
         if '*' in relative:
@@ -383,7 +482,7 @@ class High(medium.Medium):
 
             elif sub_file.is_dir():
                 ret = self.handle_untracked_dir(
-                    sub_file.path, clean_fixed, relative
+                    sub_file.path, sub_file.relpath, clean_fixed, relative
                 )
 
                 staged_flag += ret[0]
@@ -415,7 +514,9 @@ class High(medium.Medium):
 
         return staged_flag, file_present
 
-    def get_tree_items(self, hash_: str, is_cmmt=False) -> list:
+    def get_tree_items(
+        self, hash_: str, is_cmmt: bool = False
+    ) -> list[tuple[str, str, str]]:
         """
         Gets the last commit tree itens (type, hash and filename).
         param `last_cmmt`: The hash of the last commit.
@@ -474,7 +575,12 @@ class High(medium.Medium):
 
         return tree_items_list
 
-    def is_ignored(self, file: DirEntryWrapper, fixed, relative) -> bool:
+    def is_ignored(
+        self,
+        file: DirEntryWrapper,
+        fixed: list[str],
+        relative: list[str]
+    ) -> bool:
         is_dir = file.is_dir()
         for pattern in relative:
             if pattern[-1] == '/' and not is_dir:
@@ -501,8 +607,7 @@ class High(medium.Medium):
         mtime = self.dirs_mtimes.get(self.git_dir)
 
         if cache and mtime == cache[0]:
-            result = cache[1]
-            # status might be None or str
+            result: str | None = cache[1]
             print('Gotten from cache:', result)
             return result
 
@@ -516,3 +621,27 @@ class High(medium.Medium):
         self.final_result_cache[self.git_dir] = mtime, status
         self.event_handlers[self.git_dir].flag = False
         print('Cache saved')
+
+    # def send(self, *data, to) -> None:
+    #     actual_msg = pickle.dumps(data, protocol=5)
+    #
+    #     while actual_msg[50_000:]:
+    #         msg_slice = b'1' + actual_msg[:50_000]
+    #         self.sock.sendto(msg_slice, ('localhost', to))
+    #         actual_msg = actual_msg[50_000:]
+    #
+    #     msg_slice = b'0' + actual_msg
+    #
+    #     self.sock.sendto(msg_slice, ('localhost', to))
+    #
+    # def receive(self) -> bytes:
+    #     actual_msg = b''
+    #     msg_slice = self.sock.recv(50_000)
+    #
+    #     while msg_slice[0] == b'1':
+    #         actual_msg += msg_slice[1:]
+    #         msg_slice = self.sock.recv(50_000)
+    #
+    #     actual_msg += msg_slice[1:]
+    #
+    #     return pickle.loads(actual_msg)
