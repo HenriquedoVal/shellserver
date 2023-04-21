@@ -1,14 +1,27 @@
-from . import server
+import socket
+
+from . __init__ import PORT, APP_HOME
+
+# Quit program as soon as possible
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('localhost', PORT))
+except OSError:
+    raise SystemExit
+
+from .server import Server
+
+server = Server(sock)
+server.init_script()
 
 try:
     server.mainloop()
 except Exception:
     import traceback
-    from datetime import datetime
-    from .__init__ import APP_HOME
+    import time
 
     with open(APP_HOME + '/traceback', 'w') as out:
-        print(datetime.now().ctime(), file=out)
+        print(time.ctime(), file=out)
         print(traceback.format_exc(), file=out)
 
     raise

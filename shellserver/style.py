@@ -226,7 +226,6 @@ def apply_escape_codes(
 def style(
     cwd: str,
     link: str,
-    git: int,  # | bool,
     brackets: list,
     after: list,
     no_error: int,  # | bool,
@@ -240,9 +239,13 @@ def style(
         link = '~' + link.removeprefix(USER_HOME)
 
     result_cwd, result_link = get_ephem_cwd_and_link(cwd, link, 0, 0)
-    result_git = symbols_map['Git'] + ' ' if git else ''
     result_brackets = get_ephem_brackets(brackets, after)
     result_clocks = resolve_clocks(duration, width)
+    result_git = (
+        symbols_map['Git'] + ' '
+        if any(i.startswith('Branch') for i in brackets)
+        else ''
+    )
 
     counter = 0
     no_versions = False

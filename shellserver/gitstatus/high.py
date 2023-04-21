@@ -5,184 +5,159 @@ Module for functions with high level of abstraction
 and/or complexity.
 """
 
-from fnmatch import fnmatchcase
-# import multiprocessing as mp
+import ctypes
+import io
+import multiprocessing as mp
 import os
-# import pickle
+import pickle
 import sys
 import time
+
+from collections import deque
+from mmap import mmap
+from multiprocessing.shared_memory import SharedMemory
 from typing import Any
 
-from . import medium
+from . import base
+from . import plugins
+from . import utils
 
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEvent
-    observer = Observer()
-    observer.start()
-    HAS_WATCHDOG = True
-except ImportError:
-    HAS_WATCHDOG = False
-
+OS_CPU_COUNT = os.cpu_count() or 1
 n = '\n\n'
-if '--git-verbose' not in sys.argv:
-    # sending to stderr would break tests
-    # and I have already messed with sys.stdout in server.py
-    def print(*args: Any, **kwargs: Any) -> None:
-        pass
-
-
-class DirEntryWrapper:
-    counter = 0
-    # os.DirEntry is a final class, can't be subclassed
-    __slots__ = 'entry', 'name', 'path', 'relpath'
-
-    def __init__(self, entry: os.DirEntry[Any], git_dir: str):
-        self.entry = entry
-        self.name = entry.name.lower()
-        self.path = entry.path.lower()
-        self.relpath = self.path.removeprefix(
-            git_dir + '\\'
-        ).replace('\\', '/', -1)
-        DirEntryWrapper.counter += 1
-
-    def stat(self) -> os.stat_result:
-        try:
-            return self.entry.stat()
-        except PermissionError:
-            return self.entry.stat(follow_symlinks=False)
-
-    def is_file(self) -> bool:
-        try:
-            return self.entry.is_file()
-        except PermissionError:
-            return self.entry.is_file(follow_symlinks=False)
-
-    def is_dir(self) -> bool:
-        try:
-            return self.entry.is_dir()
-        except PermissionError:
-            return self.entry.is_dir(follow_symlinks=False)
-        except BaseException:
-            raise
-
-    def is_symlink(self) -> bool:
-        return self.entry.is_symlink()
 
 
 class EventHandler:
     __slots__ = (
         'obj_ref',
-        'git_dir_copy',
-        'ignore_event_paths',
-        'flag'
+        'flag',
     )
 
     def __init__(self, obj_ref: High):
         self.obj_ref = obj_ref
-        self.git_dir_copy = obj_ref.git_dir
-        self.ignore_event_paths = (
-            '.git\\index.lock',
-            '.git\\index',
-            '.git\\config',
-            '.git\\packed-refs',
-            '.git\\shallow'
-        )
 
         # flags that dispatch has already been called
         # will be reseted by High obj
         # starts as True because the first read touches files
         self.flag = True
 
-    def dispatch(self, event: FileSystemEvent) -> None:
+    def dispatch(self, event: plugins.FileSystemEvent) -> None:
         if self.flag:
             return
         if event.is_directory:
             return
-        if event.src_path.endswith(self.ignore_event_paths):
-            return
-
-        print(event)
+        self.obj_ref.output.write(f'{event}\n')
 
         self.flag = True
-        self.obj_ref.dirs_mtimes[self.git_dir_copy] = time.time()
+        self.obj_ref.dirs_mtimes[self.obj_ref.git_dir] = time.time()
 
 
 class FallbackError(Exception):
     pass
 
 
-# def _subprocess_entry_point() -> None:
-#     sys.__stdout__.write('dual-proc\n')
-#     obj = High()
-#     while 1:
-#
-#         prot, *data = obj.receive()
-#
-#         if prot == 0:
-#             obj.init(*data)
-#         elif prot == 1:
-#             obj.index_tracked, obj.packs_list = data
-#         elif prot == 2:
-#             obj.set_full_status(*data)
-#         elif prot == 3:
-#             obj.send(
-#                 obj.untracked, obj.staged, obj.modified, obj.deleted,
-#                 to=MAIN_PORT
-#             )
-#             obj.untracked = 0
-#             obj.staged = 0
-#             obj.modified = 0
-#             obj.deleted = 0
+class MemFlag:
+    EMPTY = b'\x00'
+    INIT = b'\xf1'
+    STATUS = b'\xf2'
+    TURN = b'\xf3'
+    COLLECT = b'\xf4'
+    WORKER_RES = b'\xf5'
+    QUIT = b'\xf6'
+    ERROR = b'\xf7'
 
 
-class High(medium.Medium):
+def _workers_entry_point() -> None:
+    sys.stderr = open('t:/err_' + mp.current_process().name, 'w')
+    s = open('t:/out_' + mp.current_process().name, 'w')
+    obj = High(_is_worker=True, output=s)
+    obj.worker_mainloop()
 
-    __slots__ = (
-        'git_dir', 'branch',
-        'untracked', 'staged', 'modified', 'deleted',
-        'use_cr',
-        # 'sock', 'is_main', 'switch', 'dual'
-    )
 
-    def __init__(self, raise_subprocess: bool = False) -> None:
+class High(base.Base):
+
+    # dropped __slots__
+
+    def __init__(
+            self,
+            *,
+            multiproc: bool = False,
+            workers: int = OS_CPU_COUNT - 1,
+            linear: bool = False,
+            read_async: bool = False,
+            fallback: bool = True,
+            watchdog: bool = True,
+            output: io.TextIOWrapper | utils.DiscardOutput | None = None,
+            _is_worker: bool = False,
+            **kwargs,
+    ) -> None:
+
+        # config
+        self.linear = linear
+        self.read_async = read_async
+        self.fallback = fallback
+        self.watchdog = watchdog
+
+        self.output: io.TextIOWrapper | utils.DiscardOutput
+        if not isinstance(output, io.TextIOWrapper) or output is None:
+            self.output = utils.DiscardOutput()
+        else:
+            self.output = output
+
         self.untracked = 0
         self.staged = 0
         self.modified = 0
         self.deleted = 0
-
         self.use_cr = True
-
-        #                       hash : tree_items_list
+        # {hash : tree_items_list}
         self.objects_cache: dict[str, list[tuple[str, str, str]]] = {}
+
         self.event_handlers: dict[str, EventHandler] = {}
         self.final_result_cache: dict[
             str, tuple[float | None, str | None]] = {}
         self.dirs_mtimes: dict[str, float] = {}
 
-        # self.dual = '--dual-proc' in sys.argv
-        # if not self.dual:
-        #     return
-        #
-        # self.switch = True
-        # self.is_main = raise_subprocess
-        #
-        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # if not self.is_main:
-        #     self.sock.bind(('localhost', SUBPROCESS_PORT))
-        # else:
-        #     mp.Process(
-        #         target=_subprocess_entry_point,
-        #         daemon=True
-        #     ).start()
-        #
-        #     self.sock.bind(('localhost', MAIN_PORT))
+        self.files_readden: deque[tuple[ctypes.Array[Any], str]] = deque()
+
+        self.mp_main = multiproc
+        self.multiproc = (multiproc and workers) or _is_worker
+        self.raised_exception = False
+
+        if not self.multiproc:
+            return
+
+        self.workers = workers
+        self.switch = 0
+        self.orders_sent = 0
+
+        self.shm = SharedMemory(
+            name='shellserver_shared_memory',
+            create=multiproc,
+            size=1024 * 1024 * 2
+        )
+
+        assert isinstance(self.shm.buf.obj, mmap)
+        self.mmap = self.shm.buf.obj
+
+        if multiproc:
+            for _ in range(workers):
+                mp.Process(
+                    target=_workers_entry_point, daemon=True
+                ).start()
+
+        if not self.mp_main:
+            self.proc_num = int(mp.current_process().name[-1])
 
     def init(self, git_dir: str, branch: str) -> None:
         self.git_dir = git_dir.lower()
         self.branch = branch
 
-        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
+        if self.multiproc and not self.mp_main:
+            return
+
+        if self.multiproc:
+            self.write_shm(self.git_dir, branch, flag=MemFlag.INIT)
+
+        if plugins.HAS_WATCHDOG and self.watchdog:
             handler = self.event_handlers.get(self.git_dir)
             if handler is not None:
                 return
@@ -190,24 +165,22 @@ class High(medium.Medium):
             handler = EventHandler(self)
             self.event_handlers[self.git_dir] = handler
 
-            observer.schedule(
+            plugins.observer.schedule(
                 handler, self.git_dir, recursive=True
             )
 
-        # if self.dual and self.is_main:
-        #     self.send(0, self.git_dir, branch, to=SUBPROCESS_PORT)
-
     def status(self) -> str | None:
         """
+        Only MainProcess will call this.
         Do a inline version of 'git status' without any use of git.
         return: str | None: String with the status, None if there's
                             nothing to report.
         """
 
-        print('\nGIT_DIR:', self.git_dir)
-        print('Branch', self.branch, end=n)
+        self.output.write(f'\nGIT_DIR: {self.git_dir}\n')
+        self.output.write(f'Branch {self.branch}{n}')
 
-        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
+        if plugins.HAS_WATCHDOG and self.watchdog:
             cache = self.get_cached_result()
             # valid values are None or str
             if not isinstance(cache, int):
@@ -215,24 +188,26 @@ class High(medium.Medium):
 
         try:
             self.set_index_tracked()
-        except medium.IndexTooBigError:
-            print("Index too big, Fallback.")
+        except base.IndexTooBigError:
+            self.output.write('Index too big, Fallback.\n')
+            if self.multiproc and self.mp_main:
+                self.main_collect()
             raise FallbackError
 
-        print('Index len:', len(self.index_tracked))
+        self.output.write(f'Index len: {len(self.index_tracked)}\n')
 
         exclude_content = self.get_exclude_content()
 
         self.set_packs()
-        print('List of packfiles:')
+        self.output.write('List of packfiles:\n')
         for pat in self.packs_list:
-            print(pat)
-        print()
+            self.output.write(pat + '\n')
+        self.output.write('\n')
 
-        # if self.dual:
-        #     self.send(
-        #         1, self.index_tracked, self.packs_list, to=SUBPROCESS_PORT
-        #     )
+        if self.multiproc:
+            self.write_shm(
+                self.index_tracked, self.packs_list, flag=MemFlag.STATUS
+            )
 
         last_cmmt = self.get_last_commit_hash()
 
@@ -240,14 +215,14 @@ class High(medium.Medium):
             self.git_dir, last_cmmt, exclude_content=exclude_content
         )
 
-        # if self.dual:
-        #     self.send(3, to=SUBPROCESS_PORT)
-        #
-        #     unt, sta, mod, del_ = self.receive()
-        #     self.untracked += unt
-        #     self.staged += sta
-        #     self.modified += mod
-        #     self.deleted += del_
+        if not self.linear and self.read_async:
+            self.handle_files_readden_async()
+            self.files_readden.clear()
+
+        if self.multiproc:
+            err = self.main_collect()
+            if err:
+                raise FallbackError
 
         status_string = self.get_status_string(
             (self.untracked, self.staged, self.modified, self.deleted)
@@ -258,10 +233,15 @@ class High(medium.Medium):
         self.modified = 0
         self.deleted = 0
 
-        if HAS_WATCHDOG and '--no-watchdog' not in sys.argv:
+        if plugins.HAS_WATCHDOG and self.watchdog:
             self.save_status_in_cache(status_string)
 
-        print('Entries classified:', DirEntryWrapper.counter)
+        if not self.multiproc:
+            self.output.write(
+                'Entries classified: '
+                f'{utils.DirEntryWrapper.counter}'
+            )
+        utils.DirEntryWrapper.counter = 0
 
         return status_string
 
@@ -274,14 +254,17 @@ class High(medium.Medium):
         relative_prev: list[str]
     ) -> None:
 
-        # if self.dual:
-        #     self.switch = not self.switch
-        #     if self.is_main and self.switch:
-        #         self.send(
-        #             2, dir_path, tree_hash, fixed_prev, relative_prev,
-        #             to=SUBPROCESS_PORT
-        #         )
-        #         return
+        if self.multiproc and self.mp_main:
+            self.switch += 1
+
+            if self.switch <= self.workers:
+                self.write_shm(
+                    self.switch, dir_path, tree_hash,
+                    relpath, fixed_prev, relative_prev,
+                    flag=MemFlag.TURN
+                )
+                self.orders_sent += 1
+                return
 
         self.set_full_status(
             dir_path, tree_hash, relpath, fixed_prev, relative_prev
@@ -291,7 +274,7 @@ class High(medium.Medium):
         self,
         dir_path: str,
         tree_hash: str | None,
-        relpath: str | None =  None,
+        relpath: str | None = None,
         fixed_prev: list[str] | None = None,
         relative_prev: list[str] | None = None,
         *,
@@ -312,15 +295,20 @@ class High(medium.Medium):
         if '*' in relative:
             return
 
-        # list[tuple[git_type, hash, filename]]
-        tree_items_list: list[tuple[str, str, str]] = []
+        # [(file_type, hash, filename)]
+        tree_items_list: list[tuple[str, str, str]] | None = []
 
         if first_call and tree_hash is not None:
             tree_items_list = self.get_tree_items(tree_hash, True)
         elif tree_hash:
             tree_items_list = self.get_tree_items(tree_hash)
 
-        # dict[filename, hash]
+        if tree_items_list is None:
+            return
+
+        self.deleted += len(tree_items_list)
+
+        # {filename: hash}
         tracked_directories = {
             i[2]: i[1]
             for i in tree_items_list
@@ -334,105 +322,119 @@ class High(medium.Medium):
         except (PermissionError, NotADirectoryError):
             return
 
-        # need to count every file that is found in tree
-        # because we don't have a direct relationship
-        # between the index and the commit tree
-        found_in_tree = 0
         for dir_entry in directory:
 
-            file = DirEntryWrapper(dir_entry, self.git_dir)
+            if self.raised_exception:
+                break
+
+            file = utils.DirEntryWrapper(dir_entry, self.git_dir)
 
             # 100755(exe) is file
             if file.is_file():
                 if file.relpath in self.index_tracked:
-                    found_in_tree += self.handle_tracked_file(
+                    self.handle_tracked_file(
                         file, tree_items_list, file.relpath
                     )
 
                 elif not self.is_ignored(file, fixed, relative):
-                    print('Untracked:', file.relpath)
+                    self.output.write(f'Untracked: {file.relpath}\n')
                     self.untracked += 1
 
-            if file.is_dir():
-                if file.name == '.git':
-                    continue  # or pass
+            if file.is_dir() and file.name != '.git':
+                self.handle_dir(
+                    file, fixed, relative, clean_fixed,
+                    tracked_directories, tree_items_list
+                )
 
-                elif file.name in tracked_directories:
-                    found_in_tree += 1
-                    tree_hash = tracked_directories[file.name]
+    def handle_dir(
+        self,
+        file: utils.DirEntryWrapper,
+        fixed: list[str],
+        relative: list[str],
+        clean_fixed: list[str],
+        tracked_directories: dict[str, str],
+        tree_items_list: list[tuple[str, str, str]]
+    ) -> None:
 
-                    self.load_balancer(
-                        file.path,
-                        tree_hash,
-                        file.relpath,
-                        fixed_prev=clean_fixed,
-                        relative_prev=relative
-                    )
+        if file.name in tracked_directories:
+            self.deleted -= 1
+            tree_hash = tracked_directories[file.name]
 
-                elif self.is_ignored(file, fixed, relative):
-                    pass
+            self.load_balancer(
+                file.path,
+                tree_hash,
+                file.relpath,
+                fixed_prev=clean_fixed,
+                relative_prev=relative
+            )
 
-                # check if dir is a submodule
-                elif file.name in (
-                        i[2] for i in
-                        filter(lambda x: x[0] == '160000', tree_items_list)
-                ):
-                    found_in_tree += 1
+        elif self.is_ignored(file, fixed, relative):
+            pass
 
-                else:
-                    _, file_present = self.handle_untracked_dir(
-                        file.path, file.relpath, clean_fixed, relative
-                    )
+        # check if dir is a submodule
+        elif file.name in (
+                i[2] for i in
+                filter(lambda x: x[0] == '160000', tree_items_list)
+        ):
+            self.deleted -= 1
 
-                    if file_present:
-                        print('Untracked:', file.relpath)
-                        self.untracked += 1
+        else:
+            _, file_present = self.handle_untracked_dir(
+                file.path, file.relpath, clean_fixed, relative
+            )
 
-        # endfor
-        self.deleted += len(tree_items_list) - found_in_tree
+            if file_present:
+                self.output.write(f'Untracked: {file.relpath}\n')
+                self.untracked += 1
 
     def handle_tracked_file(
         self,
-        file: DirEntryWrapper,
+        file: utils.DirEntryWrapper,
         tree_items_list: list[tuple[str, str, str]],
         relpath: str
-    ) -> int:
-        """Classifies the file, returns if file was found_in_tree"""
-        local_found_in_tree = 0
-
+    ) -> None:
         # get the item or it's staged
         for item in tree_items_list:
             if item[2] == file.name:
                 break
         else:
-            print('Staged:', relpath, "isn't under a commit.")
+            self.output.write(
+                f"Staged: {relpath} isn't under a commit.\n"
+            )
             self.staged += 1
-            return local_found_in_tree
+            return
 
-        local_found_in_tree = 1
+        self.deleted -= 1
 
         mtime = self.index_tracked[relpath]
-        if file.stat().st_mtime != mtime:
-            print('Modified:', relpath)
+        st = file.stat()
+        st_mtime, st_size = st.st_mtime, st.st_size
+        if st_mtime != mtime:
+            self.output.write(f'Modified: {relpath}\n')
             self.modified += 1
-            return local_found_in_tree
+            return
+
+        file_hash_in_tree = item[1]
+        if not self.linear and self.read_async:
+            buffer = utils.read_async(file.path, st_size)
+            self.files_readden.append((buffer, file_hash_in_tree))
+            return
 
         # use_cr: interchangeably switch the use of crlf
         file_hash = self.get_hash_of_file(file.path, self.use_cr)
-        file_hash_in_tree = item[1]
 
         if file_hash_in_tree == file_hash:
-            return local_found_in_tree
+            return
 
         elif file_hash_in_tree == self.get_hash_of_file(
-                file.path, not self.use_cr, True
+            file.path, not self.use_cr, True
         ):
             self.use_cr = not self.use_cr
-            return local_found_in_tree
+            return
 
-        print('Modified:', relpath)
+        self.output.write(f'Modified: {relpath}\n')
         self.modified += 1
-        return local_found_in_tree
+        return
 
     def handle_untracked_dir(
         self,
@@ -462,15 +464,15 @@ class High(medium.Medium):
             if file.name == '.git':
                 directory.close()
                 return 0, False
-            sub_dir.append(DirEntryWrapper(file, self.git_dir))
+            sub_dir.append(utils.DirEntryWrapper(file, self.git_dir))
 
         file_present = False
         staged_flag = 0
-        marked_dirs_to_classify: list[DirEntryWrapper] = []
+        marked_dirs_to_classify: list[utils.DirEntryWrapper] = []
         for sub_file in sub_dir:
 
             if sub_file.relpath in self.index_tracked:
-                print('Staged:', sub_file.relpath)
+                self.output.write(f'Staged: {sub_file.relpath}\n')
                 self.staged += 1
                 staged_flag += 1
                 file_present = True
@@ -503,11 +505,11 @@ class High(medium.Medium):
                         sub_file, fixed, relative
                     )
                 ):
-                    print('Untracked:', sub_file.relpath)
+                    self.output.write(f'Untracked: {sub_file.relpath}\n')
                     self.untracked += 1
 
             for sub_file in marked_dirs_to_classify:
-                print('Untracked:', sub_file.relpath)
+                self.output.write(f'Untracked: {sub_file.relpath}\n')
                 self.untracked += 1
 
             file_present = False
@@ -516,7 +518,7 @@ class High(medium.Medium):
 
     def get_tree_items(
         self, hash_: str, is_cmmt: bool = False
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[tuple[str, str, str]] | None:
         """
         Gets the last commit tree itens (type, hash and filename).
         param `last_cmmt`: The hash of the last commit.
@@ -527,8 +529,10 @@ class High(medium.Medium):
         tree_items_list = self.objects_cache.get(hash_)
 
         if tree_items_list is not None:
-            print(f'Gotten cached object for hash {hash_}',
-                  *tree_items_list, sep='\n', end=n)
+            self.output.write(f'Gotten cached object for hash {hash_}\n')
+            for i in tree_items_list:
+                self.output.write(f'{i}\n')
+            self.output.write(n)
             return tree_items_list
 
         if is_cmmt:
@@ -537,39 +541,52 @@ class High(medium.Medium):
                 last_cmmt_obj = self.get_content_by_hash_packed(hash_)
 
             if last_cmmt_obj is None:
-                print("Couldn't get last commit object. Fallback.")
-                raise FallbackError
+                self.output.write(
+                    "Couldn't get last commit object. Fallback.\n"
+                )
+                if not self.multiproc:
+                    raise FallbackError
+                else:
+                    self.raised_exception = True
+                    return None
 
             tree_hash = self.get_tree_hash_from_commit(last_cmmt_obj)
-            print('Last commit tree hash:', tree_hash)
+            self.output.write(f'Last commit tree hash: {tree_hash}\n')
         else:
             tree_hash = hash_
 
         from_pack = False
         tree_obj = self.get_content_by_hash_loose(tree_hash)
-        print('Searching loose', tree_hash)
+        self.output.write(f'Searching loose {tree_hash}\n')
 
         if tree_obj is None:
             from_pack = True
             tree_obj = self.get_content_by_hash_packed(tree_hash)
-            print('Searching packed', tree_hash)
+            self.output.write(f'Searching packed {tree_hash}\n')
 
         if tree_obj is None:
-            print('Not found. Fallback.')
+            self.output.write('Not found. Fallback.\n')
 
             self.untracked = 0
             self.staged = 0
             self.modified = 0
             self.deleted = 0
 
-            raise FallbackError
+            if not self.multiproc:
+                raise FallbackError
+            else:
+                self.raised_exception = True
+                return None
 
         tree_items_list = []
 
         # there is a tree object but the git worktree is empty.
         if tree_obj:
             tree_items_list = self.parse_tree_object(tree_obj, from_pack)
-            print('Found:', *tree_items_list, sep='\n', end=n)
+            self.output.write('Found:\n')
+            for i in tree_items_list:
+                self.output.write(f'{i}\n')
+            self.output.write(n)
 
         self.objects_cache[tree_hash] = tree_items_list
 
@@ -577,7 +594,7 @@ class High(medium.Medium):
 
     def is_ignored(
         self,
-        file: DirEntryWrapper,
+        file: utils.DirEntryWrapper,
         fixed: list[str],
         relative: list[str]
     ) -> bool:
@@ -585,18 +602,20 @@ class High(medium.Medium):
         for pattern in relative:
             if pattern[-1] == '/' and not is_dir:
                 continue
-            if fnmatchcase(
-                file.name + '/' if pattern[-1] == '/' else file.name,
-                pattern
+            if utils.PathMatchSpecA(
+                (file.name + '/' if pattern[-1] == '/'
+                    else file.name).encode(),
+                pattern.encode()
             ):
                 return True
 
         for pattern in fixed:
             if pattern[-1] == '/' and not is_dir:
                 continue
-            if fnmatchcase(
-                file.relpath + '/' if pattern[-1] == '/' else file.relpath,
-                pattern
+            if utils.PathMatchSpecA(
+                (file.relpath + '/' if pattern[-1] == '/'
+                    else file.relpath).encode(),
+                pattern.encode()
             ):
                 return True
 
@@ -608,40 +627,233 @@ class High(medium.Medium):
 
         if cache and mtime == cache[0]:
             result: str | None = cache[1]
-            print('Gotten from cache:', result)
+            self.output.write(f'Gotten from cache: {result}\n')
             return result
 
-        print(f'No cache. {cache=}; {mtime=}')
+        self.output.write(f'No cache. {cache=}; {mtime=}\n')
         return 0
 
     def save_status_in_cache(self, status: str | None) -> None:
-        observer.event_queue.join()
+        plugins.observer.event_queue.join()
         # dont care if it's None
         mtime = self.dirs_mtimes.get(self.git_dir)
         self.final_result_cache[self.git_dir] = mtime, status
         self.event_handlers[self.git_dir].flag = False
-        print('Cache saved')
+        self.output.write('Cache saved\n')
 
-    # def send(self, *data, to) -> None:
-    #     actual_msg = pickle.dumps(data, protocol=5)
+    def handle_files_readden_async(self) -> None:
+        # TODO: sync before going on, bug on busy cpu
+        # maybe a lot of ReadFileEx calls?
+
+        for buffer, hash_ in self.files_readden:
+            content = buffer.raw
+            file_hash = self.get_hash_of_file(
+                content, self.use_cr, is_buf=True
+            )
+
+            if hash_ == file_hash:
+                continue
+
+            elif hash_ == self.get_hash_of_file(
+                '', use_cr=not self.use_cr, use_prev_read=True
+            ):
+                self.use_cr = not self.use_cr
+                continue
+
+            self.modified += 1
+
     #
-    #     while actual_msg[50_000:]:
-    #         msg_slice = b'1' + actual_msg[:50_000]
-    #         self.sock.sendto(msg_slice, ('localhost', to))
-    #         actual_msg = actual_msg[50_000:]
+    # multiproc
     #
-    #     msg_slice = b'0' + actual_msg
+
+    #                 main                                             workers
+    #      __________________________________________________ ___________________________  # noqa
+    #      |                                                | |                         |  # noqa
+    # shm: I init args S status args T set_full_status args C W . . . . W . . . . W . . .  # noqa
     #
-    #     self.sock.sendto(msg_slice, ('localhost', to))
-    #
-    # def receive(self) -> bytes:
-    #     actual_msg = b''
-    #     msg_slice = self.sock.recv(50_000)
-    #
-    #     while msg_slice[0] == b'1':
-    #         actual_msg += msg_slice[1:]
-    #         msg_slice = self.sock.recv(50_000)
-    #
-    #     actual_msg += msg_slice[1:]
-    #
-    #     return pickle.loads(actual_msg)
+
+    def main_collect(self) -> int:
+        # avoid worker infinite loop
+        pos = self.mmap.tell()
+        self.mmap.seek(0)
+        self.mmap.write(MemFlag.EMPTY)
+        self.mmap.seek(pos)
+
+        # collect
+        self.mmap.write(MemFlag.COLLECT)
+        err = self.main_get_result()
+        if self.raised_exception:
+            err = 1
+        length = self.mmap.tell()
+
+        kb = round(length / 1024, 1)
+        self.output.write(f'Memory used: {kb}kb\n')
+
+        # clear memory
+        self.mmap.seek(0)
+        self.mmap.write(b'\x00' * length)
+        self.mmap.seek(0)
+
+        self.switch = 0
+        self.orders_sent = 0
+        self.raised_exception = False
+
+        return err
+
+    def shm_get_flag(self) -> bytes:
+        # TODO: implement semaphores
+        pos = self.mmap.tell()
+        flag = self.mmap.read(1)
+        while flag == MemFlag.EMPTY:
+            self.mmap.seek(pos)
+            flag = self.mmap.read(1)
+            time.sleep(4e-5)
+
+        return flag
+
+    def main_get_result(self) -> int:
+        err = 0
+        for _ in range(self.workers):  # orders_sent
+            flag = self.shm_get_flag()
+            if flag == MemFlag.ERROR:
+                err = 1
+
+            if err:
+                self.mmap.read(8)
+                continue
+
+            self.untracked += int.from_bytes(
+                self.mmap.read(2), byteorder='little'
+            )
+            self.staged += int.from_bytes(
+                self.mmap.read(2), byteorder='little'
+            )
+            self.modified += int.from_bytes(
+                self.mmap.read(2), byteorder='little'
+            )
+            # -32768 -> 32767
+            self.deleted += int.from_bytes(
+                self.mmap.read(2), 'little', signed=True
+            )
+
+        return err
+
+    def write_shm(self, *objs: Any, flag: bytes) -> None:
+        """One call for init, one by load_balancer"""
+        pos = self.mmap.tell()
+        written = 0
+        self.mmap.read(1)
+
+        for obj in objs:
+            obj_bytes = pickle.dumps(obj, protocol=-1)
+            length = len(obj_bytes)
+            self.mmap.write(length.to_bytes(3, 'little'))
+            self.mmap.write(obj_bytes)
+            written += length + 3
+
+        self.mmap.seek(pos)
+        self.mmap.write(flag)
+        self.mmap.seek(pos + written + 1)
+
+    # workers only
+
+    def worker_write_shm_result(self) -> None:
+        self.mmap.read((self.proc_num - 1) * 9)
+
+        if self.raised_exception:
+            self.mmap.write(MemFlag.ERROR)
+            return
+
+        pos = self.mmap.tell()
+        self.mmap.read(1)
+
+        for i in (self.untracked, self.staged, self.modified):
+            self.mmap.write(
+                i.to_bytes(length=2, byteorder='little')
+            )
+
+        self.mmap.write(
+            self.deleted.to_bytes(length=2, byteorder='little', signed=True)
+        )
+
+        self.mmap.seek(pos)
+        self.mmap.write(MemFlag.WORKER_RES)
+
+    def worker_init(self) -> None:
+        for it in range(2):
+
+            length = int.from_bytes(self.mmap.read(3), 'little')
+            recv = pickle.loads(self.mmap.read(length))
+
+            if it == 0:
+                self.git_dir = recv
+            elif it == 1:
+                self.branch = recv
+
+    def worker_status(self) -> None:
+        for it in range(2):
+
+            length = int.from_bytes(self.mmap.read(3), 'little')
+            recv = pickle.loads(self.mmap.read(length))
+
+            if it == 0:
+                self.index_tracked = recv
+            elif it == 1:
+                self.packs_list = recv
+
+    def worker_handle_turn(self) -> None:
+        for it in range(6):
+
+            length = int.from_bytes(self.mmap.read(3), 'little')
+            recv = pickle.loads(self.mmap.read(length))
+
+            if it == 0:
+                turn = recv
+                if turn != self.proc_num:
+                    # exhaust loop to keep mmaps sync without pickling
+                    for _ in range(5):
+                        length = int.from_bytes(self.mmap.read(3), 'little')
+                        self.mmap.read(length)
+                    return
+
+            elif it == 1:
+                dir_path = recv
+            elif it == 2:
+                tree_hash = recv
+            elif it == 3:
+                relpath = recv
+            elif it == 4:
+                fixed_prev = recv
+            elif it == 5:
+                relative_prev = recv
+
+        self.set_full_status(
+            dir_path, tree_hash, relpath, fixed_prev, relative_prev
+        )
+
+    def worker_clear(self) -> None:
+        self.untracked = 0
+        self.staged = 0
+        self.modified = 0
+        self.deleted = 0
+        self.raised_exception = False
+        self.mmap.seek(0)
+        self.output.flush()
+
+    def worker_mainloop(self) -> None:
+        while 1:
+            flag = self.shm_get_flag()
+
+            if flag == MemFlag.INIT:
+                self.worker_init()
+            elif flag == MemFlag.STATUS:
+                self.worker_status()
+            elif flag == MemFlag.TURN:
+                self.worker_handle_turn()
+            elif flag == MemFlag.COLLECT:
+                self.worker_write_shm_result()
+                self.worker_clear()
+            elif flag == MemFlag.QUIT:
+                return
+            else:
+                raise RuntimeError('Unreachable')

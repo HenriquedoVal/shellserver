@@ -1,0 +1,31 @@
+## Windows Terminal Themes
+# dark_theme = 'Tango Dark'
+# light_theme = 'Solarized Light'
+
+## General
+# git_timeout = 120
+# disable_git = false
+# use_git = false  # instead of gitstatus subpackage
+
+## Plugins
+# watchdog = true
+# use_pygit2 = false
+
+## Beta
+# read_async = false
+# multiproc = false
+# workers = cpu_count - 1  # int
+# workers = 4
+
+## Output
+# output = "path_to_log" | literal "buffer" | literal "stdout"  # or nothing for None
+# output = "C:\some\path"
+# output = "buffer"
+# output = "stdout"
+
+## Debug
+# timeit = false
+# test_status = false
+# linear = false
+# fallback = true
+# let_crash = false

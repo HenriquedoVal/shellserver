@@ -1,72 +1,263 @@
 from __future__ import annotations
 
-"""
-Module with functions considered to be of low level,
-that is, functions that doesn't call its siblings.
-Same idea for the methods of Low class.
-"""
-
 import hashlib
 import os
 import subprocess
 import zlib
 
-try:
-    import pygit2
-    HAS_PYGIT2 = True
-except ImportError:
-    HAS_PYGIT2 = False
+from . import packs
+from . import plugins
 
 
-def get_dot_git(target_path: str) -> str | None:
-    """
-    Searches backwards for .git
-    param `target_path`: The absolute path from which the search begins.
-    return: str | None: The directory of .git. None if it was not found.
-    """
-
-    git = os.path.join(target_path, '.git')
-    if os.path.exists(git):
-        return target_path
-
-    parent = os.path.dirname(target_path)
-    if parent == target_path:
-        return None
-
-    return get_dot_git(parent)
+class IndexTooBigError(Exception):
+    pass
 
 
-def exists_head(git_dir: str) -> bool:
-    """
-    Checks if there are a 'HEAD' in git files.
-    return: bool: Is there a 'HEAD' in .git?
-    """
-
-    head = os.path.join(git_dir, '.git/HEAD')
-    return os.path.exists(head)
-
-
-def get_branch_on_head(git_dir: str) -> str:
-    """
-    Parses 'HEAD' file to get the head branch.
-    return: str: The name of the git branch.
-    """
-
-    head_path = os.path.join(git_dir, '.git/HEAD')
-
-    with open(head_path) as head:
-        content = head.read()
-
-    return content[content.rindex('/') + 1:].strip()
-
-
-class Low:
+class Base(packs.Packs):
     # {git_dir: repo}
-    pygit2_repos: dict[str, pygit2.Repository] = {}
+    pygit2_repos: dict[str, plugins.pygit2.Repository] = {}
     git_dir: str
     branch: str
+    index_tracked: dict[str, float]
+    relative: list[str]
+    fallback: bool
 
-    __slots__ = 'prev_read'
+    # dropped __slots__
+
+    def __init__(self) -> None:
+        raise TypeError("cannot create 'gitstatus.base.Base' instances")
+
+    def set_packs(self) -> None:
+        """
+        Sets the `packs_list` attribute.
+        return: None.
+        """
+        # info/packs is not needed
+        pack_def_path = '.git/objects/pack'
+
+        packs_list = self.get_info_packs_content()
+        if packs_list:
+            self.packs_list = [
+                os.path.join(
+                    self.git_dir, pack_def_path, i
+                ) for i in packs_list
+            ]
+            return
+
+        packs = os.path.join(self.git_dir, pack_def_path)
+        if not os.path.exists(packs):
+            self.packs_list = []
+            return
+
+        dir_ = os.scandir(packs)
+        self.packs_list = [
+            i.path for i in dir_ if i.name.endswith('.pack')
+        ]
+
+    def set_index_tracked(self) -> None:
+        """
+        Sets `index_tracked` attribute.
+        Modified and simpler version of gin.
+        https://github.com/sbp/gin
+        return: None.
+        """
+        max_entries = 1000
+        if plugins.HAS_SSD_CHECKER:
+            for drive in plugins.DRIVE_SSD_MAP:
+                if self.git_dir.startswith(drive):
+                    # if SSD: 2500 if HDD: 1000
+                    max_entries = (
+                        2500 if plugins.DRIVE_SSD_MAP[drive] else 1000
+                    )
+                    break
+
+        index_path = os.path.join(self.git_dir, '.git/index')
+        if not os.path.exists(index_path):
+            self.index_tracked = {}
+            return
+
+        with open(index_path, 'rb') as f:
+
+            def read_str_until(delim: bytes) -> str:
+                ret: list[bytes] = []
+                while True:
+                    b = f.read(1)
+                    if b == b'' or b == delim:
+                        return b"".join(ret).decode()
+
+                    ret.append(b)
+
+            constant = f.read(4)
+            version = int.from_bytes(f.read(4), 'big')
+            if constant != b'DIRC' or version not in (2, 3):
+                self.index_tracked = {}
+
+            entries = int.from_bytes(f.read(4), 'big')
+            res = {}
+
+            for entry in range(entries):
+                f.read(8)
+                # converted to float to keep type consistence
+                mtime = float(int.from_bytes(f.read(4), 'big'))
+                mtime += int.from_bytes(f.read(4), 'big') / 1000000000
+                f.read(44)
+
+                flags = int.from_bytes(f.read(2), 'big')
+                namelen = flags & 0xfff
+                extended = flags & (0b0100_0000 << 8)
+
+                entrylen = 62
+
+                if extended:
+                    f.read(2)
+                    entrylen += 2
+
+                if namelen < 0xfff:
+                    name = f.read(namelen).decode()
+                    entrylen += namelen
+                else:
+                    name = read_str_until(b'\x00')
+                    entrylen += 1
+
+                res[name.lower()] = mtime
+
+                if self.fallback and len(res) > max_entries:
+                    raise IndexTooBigError
+
+                padlen = (8 - (entrylen % 8)) or 8
+                f.read(padlen)
+
+        self.index_tracked = res
+
+    def get_split_ignored(
+        self, raw_ignored: list[str], prepend: None | str = None
+    ) -> tuple[list[str], list[str]]:
+        """
+        Returns two lists in this order: fixed and relative.
+        """
+        raw_ignored = [
+            i.strip().lower()
+            for i in raw_ignored
+            if not i.strip().startswith('#')
+        ]
+
+        relative = [
+            i for i in raw_ignored
+            if '/' not in i[:-1]
+        ]
+
+        if prepend is None:
+            fixed = [i.lstrip('/') for i in raw_ignored if i not in relative]
+
+        else:
+            relpath = prepend.removeprefix(
+                self.git_dir + '\\'
+            ).replace('\\', '/', -1)
+
+            fixed = [
+                f'{relpath}/{i}' for i in raw_ignored if i not in relative
+            ]
+
+        return fixed, relative
+
+    def get_content_by_hash_packed(self, hash_: str) -> bytes | None:
+        """
+        Gets the content of an object by its hash in any packfiles present.
+        param `hash_`: The hash to be searched in packfiles.
+        return: bytes | None: The content of object, None if it was not Found.
+        """
+        content = None
+
+        for pack in self.packs_list:
+            idx = self.get_idx_of_pack(pack)
+            offset = self.search_idx(idx, hash_, rt_offset=True)
+            if offset is None:
+                continue
+            content = self.get_content_by_offset(pack, offset)
+            if content:
+                break
+
+        return content
+
+    def get_last_commit_packed(self) -> str | None:
+        """
+        Gets the last commit's hash of a git repo by a packed perspective.
+        return: str | None: String of the last commit hash, None if there's no
+                            last commit packed.
+        """
+        info_refs = self.get_info_refs_content()
+        last_commt_hash = None
+
+        for line in info_refs:
+            a, b = line.strip().split()
+            if b == f'refs/heads/{self.branch}':
+                last_commt_hash = a
+                break
+
+        return last_commt_hash
+
+    def get_last_commit_hash(self) -> str | None:
+        """
+        Gets the last commit's hash of a git repo.
+        return: str | None: String of the last commit hash, None if there's no
+                            last commit.
+        """
+        last_cmmt = self.get_last_commit_loose()
+
+        if last_cmmt is None:
+            last_cmmt = self.get_last_commit_packed()
+
+        return last_cmmt
+
+    def get_ignored_lists(
+        self,
+        dir_path: str,
+        relpath: str | None,
+        fixed_prev: list[str] | None,
+        relative_prev: list[str] | None,
+        exclude_content: list[str] | None = None
+    ) -> tuple[list[str], list[str], list[str]]:
+        first_call = exclude_content is not None
+
+        raw_ignored = self.get_gitignore_content(dir_path)
+        if isinstance(exclude_content, list):
+            raw_ignored += exclude_content
+
+        prepend = None if first_call else dir_path
+        fixed, relative = self.get_split_ignored(raw_ignored, prepend)
+
+        # this supposes that most of .gitignore are in first level of depth
+        # if first_call:
+        #     self.relative = relative
+        #     relative = []
+
+        # if it isn't the first call, but first_call var can't be used (mypy)
+        if isinstance(fixed_prev, list) and isinstance(relative_prev, list):
+            fixed += fixed_prev
+            relative += relative_prev
+            # fixed = self.get_clean_fixed_level(relpath, fixed)
+            assert isinstance(relpath, str)
+            clean_fixed = self.get_clean_fixed_depth(relpath, fixed)
+        # pass everything onward
+        else:
+            clean_fixed = fixed
+
+        return fixed, relative, clean_fixed
+
+    def get_clean_fixed_depth(
+        self, relpath: str, fixed: list[str]
+    ) -> list[str]:
+
+        depth = relpath.count('/')
+        return [
+            pattern for pattern in fixed
+            if pattern[:-1].count('/') > depth
+            or '**' in pattern
+        ]
+
+    #
+    # Low
+    #
 
     def get_info_packs_content(self) -> list[str]:
         """
@@ -183,14 +374,19 @@ class Low:
     def get_hash_of_file(
         self, file_path: bytes | str,
         use_cr: bool = False,
-        use_prev_read: bool = False
+        use_prev_read: bool = False,
+        *,
+        is_buf: bool = False
     ) -> str:
         """
         Get the SHA1 hash in the same way Git would do.
         param `file_path`: str | bytes: The path to file.
         param `use_cr`: bool: Use CRLF for new line?
         """
-        if not use_prev_read:
+        if is_buf:
+            assert isinstance(file_path, bytes)
+            self.prev_read = file_path
+        elif not use_prev_read:
             with open(file_path, 'rb') as in_file:
                 self.prev_read = in_file.read()
 
@@ -329,7 +525,7 @@ class Low:
     def parse_pygit2(self) -> str | None:
         repo = self.pygit2_repos.get(self.git_dir)
         if repo is None:
-            repo = pygit2.Repository(self.git_dir)
+            repo = plugins.pygit2.Repository(self.git_dir)
             repo.free()
             self.pygit2_repos[self.git_dir] = repo
 

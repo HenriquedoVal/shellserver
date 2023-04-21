@@ -16,6 +16,8 @@ class Packs:
     # {'path': (mtime, {'hash': offset})}
     packs_index_cache: dict[str, tuple[float, dict[str, int]]] = {}
 
+    __slots__ = ()
+
     def search_idx(
             self,
             idx_path: str,

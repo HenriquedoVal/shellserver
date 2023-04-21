@@ -1,3 +1,5 @@
+#!python
+
 import os
 import random
 import string
@@ -5,16 +7,14 @@ import subprocess
 import tempfile
 import unittest
 
-from ..gitstatus import main
-from ..gitstatus import low
-from ..gitstatus import high
+from shellserver.gitstatus import interface, plugins
 
 
-# the thread use in this would break many tests
-# for it takes time
-high.HAS_WATCHDOG = False
+# TODO: solve this
+plugins.HAS_WATCHDOG = False
 
-obj = main.obj
+interface.init()
+obj = interface._Globals.obj
 
 
 def popen(cmd: str) -> bytes:
@@ -55,15 +55,15 @@ class TestGitstatusLowEmpty(unittest.TestCase):
 
     def test_empty_get_dot_git(self):
         path = os.path.join(self.temp, '.git/objects')
-        git_dir = low.get_dot_git(path)
+        git_dir = interface._get_dot_git(path)
         self.assertEqual(git_dir, self.temp)
 
     def test_empty_get_branch_on_head(self):
-        branch = low.get_branch_on_head(self.temp)
+        branch = interface._get_branch_on_head(self.temp)
         self.assertEqual(branch, 'master')
 
         popen(f'git -C {self.temp} branch -M main')
-        branch = low.get_branch_on_head(self.temp)
+        branch = interface._get_branch_on_head(self.temp)
         self.assertEqual(branch, 'main')
 
 
@@ -165,7 +165,7 @@ class TestGitstatusLowEmpty2(unittest.TestCase):
         self.assertEqual(tested, '+1 x1')
 
     def test_empty_exists_head(self):
-        tested = low.exists_head(self.temp)
+        tested = interface._exists_head(self.temp)
         path = os.path.join(self.temp, '.git/HEAD')
         local = os.path.exists(path)
         self.assertEqual(tested, local)
@@ -697,20 +697,19 @@ class TestGitstatusInit(unittest.TestCase):
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_gitstatus(self):
-        config = {}
-        tested = main.gitstatus(self.temp, config)
+        tested = interface.gitstatus(self.temp)
         self.assertEqual(tested, (None, None))
 
         popen(f'git init {self.temp}')
-        tested = main.gitstatus(self.temp, config)
+        tested = interface.gitstatus(self.temp)
         self.assertEqual(tested, ('master', None))
 
         popen(f'git -C {self.temp} branch -M main')
-        tested = main.gitstatus(self.temp, config)
+        tested = interface.gitstatus(self.temp)
         self.assertEqual(tested, ('main', None))
 
         ni(self.temp, 'file.txt')
-        tested = main.gitstatus(self.temp, config)
+        tested = interface.gitstatus(self.temp)
         self.assertEqual(tested, ('main', '?1'))
 
 
@@ -977,3 +976,7 @@ class TestGitstatusTDD6(unittest.TestCase):
         git = obj.parse_git_status()
         self.assertIsNone(git)
         self.assertIsNone(obj.status())
+
+
+if __name__ == "__main__":
+    unittest.main()

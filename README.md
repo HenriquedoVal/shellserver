@@ -33,17 +33,22 @@ Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'
 ### Switching Theme
   
 ![Switch-Theme](./images/switch_theme.gif)
-Can take four arguments: all, system, terminal, and blue.  
+Can take five different arguments: all, system, terminal, blue, and readline.  
 - terminal: Toggles Windows Terminal default theme.
 - system: Toggles system-wide Dark Mode.  
 - blue: Toggles 'Blue light reduction'.  
 - all: Same as not passing arguments. Do all the above.  
+- readline: Toggles PSReadLine colors. 
   
 The `system` option is not working properly on Windows 11 22h2...
   
 ### Searching history
 
 ![history](./images/history.gif)
+The amount of data printed will be limited to fit the terminal.
+- pass `-a` to get the full result
+- `-c` to make the search case-sensitive
+- `-ac` and `-ca` are allowed too
 
 ### Listing directory
 
@@ -62,23 +67,20 @@ Just `pip install` the ones you want, restart shellserver, and no further config
 
 ### Customization
 
-The server will look for a `.shellserver.toml` in the user home directory.
-Only three options will be searched right now.
+The server will look for a `.shellserver.toml` in the user home directory.  
+The most important option will be `git_timeout`.
 
 ~~~toml
 git_timeout = 500  # in ms, defaults to 2500
 # the best value is really hardware dependent
 # if you have watchdog, I would recommend something around 100
 # if you don't and the value is too low you might get no status over and over: `[...]`
-
-# Windows Terminal themes
-dark_theme = '...'  # defaults to Tango Dark
-light_theme = '...'  # Solarized Light
 ~~~
+See the [example](./.shellserver.toml) for more and the defaults.
   
 ## CLI
 
-The server knows how many clients it haves and will know if you quit shell with 'exit'  
+The server knows how many clients it haves and will know if you quit the shell with 'exit'  
 but if the window or tab is closed on the 'X' button it may outlive the shell. 
 
 ~~~
@@ -100,7 +102,7 @@ options:
 
 ## Installation
 
-Currently, ShellServer will work only in PowerShell on Windows.
+ShellServer will work only in PowerShell on Windows.
 
 ~~~PowerShell
 > pip install shellserver  # or pip install --user shellserver
@@ -117,39 +119,60 @@ Import-Module ShellServer
 ~~~
 
 ### Keep updated
-As many things might change in versions below 0.1.0, `pip install --upgrade shellserver` and `Update-Module ShellServer` must both be run when one changes.  
+As many things might change in versions below 0.1.0, consider upgrading both when one changes.
+~~~PowerShell
+> pip install --upgrade shellserver
+> Update-Module ShellServer
+~~~
 v0.0.8+ will work with the PowerShell ShellServer module 0.0.6+.
 
 ## Debugging
 
+All initial '--' are optional.  
 The git status info is still experimental, do `pythonw -m shellserver --use-git` in your profile to always use git. 
 If you have installed pygit2, you can pass `--use-pygit2` instead, which is faster than `--use-git`.  
 
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   
-Attach a _stdout_ to the server, pass `--verbose` to it and it will give the time taken for each communication.  
-`--verbose --git-verbose` will give a lot of info when it sees a git repo.
+Attach a _stdout_ to the server, pass `--timeit` to it and it will give the time taken for each communication.  
+Use `output=stdout` to get some info on git repo. You can pass `output=C:\path\to\file` too.  
 ~~~
 > shellserver kill
 # A message that the server is not responding and your prompt will be like before.
-> python -m shellserver --verbose --git-verbose  # no w, blocking
+> python -m shellserver --timeit --output=stdout  # no w, blocking
 ~~~
 Open another shell and walk to a git repo.  
   
 There are also: 
-- `--disable-git`
-- `--wait`: We will use our 'gitstatus' subpackage for repos up to 2500 index entries (in ssd, 1000 otherwise if ssd_checker is present). Will use git otherwise, unless this flag is set.
-- `--git-linear`: Fill gitstatus synchronously
-- `--no-watchdog`: Disables Watchdog plugin
-- `--test-status`: Put gitstatus subpackage result and git.exe status side-by-side
+- --no-fallback: We will use our 'gitstatus' subpackage for repos up to 2500 index entries (in ssd, 1000 otherwise if ssd_checker is present). Will use git otherwise, unless this flag is set.
+- --no-watchdog: Disables Watchdog plugin
+- --disable-git
+- --use-git  # instead of gitstatus subpackage
+- --use-pygit2
+- --linear: Fill gitstatus synchronously
+- --multiproc: Very beta and will not be updated
+- --read-async: Speed increase but error-prone
+- --let-crash: At this point, it's probably useless
+- --test-status: Put gitstatus subpackage result and git.exe status side-by-side
 
-On Pwsh module:
-- `Set-ServerTimeout`: arg in ms. 
-- `Set-ServerOpt`: Set options in runtime:
-    - enable-git
-    - disable-git
-    - use-git: Use git.exe for git status info
+Pwsh module cmdlets:
+- `Switch-ServerTimeout`: arg in ms. 
+- `Switch-ServerOpt`: Sets most of the argv options in runtime:
+    - use-git
     - use-gitstatus: Use gitstatus subpackage for git status info
-    - wait: Use the 'gitstatus' subpackage no matter how big is repo
-    - verbose
-    - let-crash: At this point, it's probably useless
+    - use-pygit2
+    - disable-git
+    - enable-git
+    - timeit
+    - no-timeit
+    - fallback
+    - no-fallback
+    - watchdog
+    - no-watchdog
+    - test-status
+    - no-test-status
+    - linear
+    - no-linear
+    - read-async
+    - no-read-async
+    - let-crash
