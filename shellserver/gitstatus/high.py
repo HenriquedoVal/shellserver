@@ -10,7 +10,6 @@ import io
 import multiprocessing as mp
 import os
 import pickle
-import sys
 import time
 
 from collections import deque
@@ -67,9 +66,7 @@ class MemFlag:
 
 
 def _workers_entry_point() -> None:
-    sys.stderr = open('t:/err_' + mp.current_process().name, 'w')
-    s = open('t:/out_' + mp.current_process().name, 'w')
-    obj = High(_is_worker=True, output=s)
+    obj = High(_is_worker=True)
     obj.worker_mainloop()
 
 
