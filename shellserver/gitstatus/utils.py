@@ -1,5 +1,6 @@
 import os
 import ctypes
+import ctypes.wintypes
 from typing import Any
 
 __all__ = ['DiscardOutput', 'DirEntryWrapper', 'read_async']
@@ -34,8 +35,8 @@ class DirEntryWrapper:
 
     def __init__(self, entry: os.DirEntry[Any], git_dir: str):
         self.entry = entry
-        self.name = entry.name.lower()
-        self.path = entry.path.lower()
+        self.name = entry.name
+        self.path = entry.path
         self.relpath = self.path.removeprefix(
             git_dir + '\\'
         ).replace('\\', '/', -1)
@@ -66,7 +67,7 @@ class DirEntryWrapper:
 kernel32 = ctypes.windll.kernel32
 
 
-def read_async(path: str, size: int) -> ctypes.Array[Any]:
+def read_async(path: str, size: int) -> tuple[ctypes.Array[Any], OVERLAPPED]:
     """
     Thread will die if enters on 'alertable wait state'
     after this call.
@@ -92,7 +93,7 @@ def read_async(path: str, size: int) -> ctypes.Array[Any]:
     )
 
     kernel32.CloseHandle(file_handle)
-    return buffer
+    return buffer, overlapped
 
 
 PathMatchSpecA = ctypes.windll.shlwapi.PathMatchSpecA

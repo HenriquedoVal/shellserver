@@ -30,7 +30,7 @@ class Config:
     watchdog: bool = True
     multiproc: bool = False
     workers: int = OS_CPU_COUNT - 1
-    read_async: bool = False
+    read_async: bool = True
     fallback: bool = True
     output: io.TextIOWrapper | io.StringIO | None = None
 
@@ -63,15 +63,14 @@ def gitstatus(target_path: str) -> tuple[str | None, str | None]:
 
     _Globals.obj.init(git_dir, branch)
 
-    if Config.use_git:
-        status = _Globals.obj.parse_git_status()
+    if plugins.HAS_WATCHDOG and Config.watchdog:
+        cache = _Globals.obj.get_cached_result()
+        # valid values are None or str
+        if not isinstance(cache, int):
+            return branch, cache
 
-    elif Config.use_pygit2:
-        print('pygit')
-        status = _Globals.obj.parse_pygit2()
-
-    else:
-        status = _package_status()
+    _Globals.status = '...'
+    status = _get_status()
 
     return branch, status
 
@@ -91,7 +90,7 @@ def set_config(Cls_config: Any) -> None:
     Param config can be of any class with class variables.
     Raise no errors on unneeded ones.
     """
-    for config, value in Cls_config.__dict__.items():
+    for config, value in vars(Cls_config).items():
         if config.startswith('__'):
             continue
 
@@ -101,40 +100,44 @@ def set_config(Cls_config: Any) -> None:
 def init() -> None:
     config = {
         name: value
-        for name, value in Config.__dict__.items()
+        for name, value in vars(Config).items()
         if name[:2] != '__'
     }
     _Globals.obj = high.High(**config)
 
 
+def cleanup() -> None:
+    _Globals.obj._write_buffer()
+
+
 def _populate_status() -> None:
-    try:
-        status = _Globals.obj.status()
-    except high.FallbackError:
+    if Config.use_git:
         status = _Globals.obj.parse_git_status()
+    elif Config.use_pygit2:
+        status = _Globals.obj.parse_pygit2()
+    else:
+        try:
+            status = _Globals.obj.status()
+        except high.FallbackError:
+            status = _Globals.obj.parse_git_status()
+        except Exception:
+            if Config.let_crash:
+                raise
+            status = _Globals.obj.parse_git_status()
 
-        if plugins.HAS_WATCHDOG and Config.watchdog:
-            plugins.observer.event_queue.join()
-            _Globals.obj.save_status_in_cache(status)
-
-    except Exception:
-        if Config.let_crash:
-            raise
-        status = _Globals.obj.parse_git_status()
-
-    _Globals.g_status = status
+    _Globals.status = status
+    if plugins.HAS_WATCHDOG and Config.watchdog:
+        _Globals.obj.save_status_in_cache(status)
 
 
-def _package_status() -> str | None:
+def _get_status() -> str | None:
     if Config.linear:
         _populate_status()
-        status = _Globals.g_status
-        if Config.test_status:
+        status = _Globals.status
+        if Config.test_status and not Config.use_git:
             git_status = _Globals.obj.parse_git_status()
             status = f'{status} {git_status}'
         return status
-
-    _Globals.g_status = '...'
 
     if not _Globals.thread.is_alive():
         _Globals.thread = th.Thread(target=_populate_status)
@@ -142,7 +145,7 @@ def _package_status() -> str | None:
 
     _Globals.thread.join(timeout=Config.git_timeout / 1000)
 
-    return _Globals.g_status
+    return _Globals.status
 
 
 def _get_dot_git(target_path: str) -> str | None:
@@ -175,4 +178,4 @@ def _get_branch_on_head(git_dir: str) -> str:
 class _Globals:
     obj: high.High
     thread: th.Thread = th.Thread(target=_populate_status)
-    g_status: str | None = None
+    status: str | None = '...'

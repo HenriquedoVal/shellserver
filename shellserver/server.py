@@ -4,6 +4,7 @@ from collections import deque
 import gc
 from io import StringIO
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -29,6 +30,7 @@ class Config:
     disable_git: bool = False
     dark_theme: str = 'Tango Dark'
     light_theme: str = 'Solarized Light'
+    trackdir: bool = True
 
     # for gitstatus
     use_git: bool
@@ -50,29 +52,60 @@ class Server:
     def __init__(self, sock: socket.socket) -> None:
         self.sock = sock
         self.clients = 0
-        self.dispatcher = utils.Dispatcher()
+
+        buf_size = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+        self.dispatcher = utils.Dispatcher(buf_size)
+
         self.cache = utils.DirCache()
-        self.exes_with_version = {}
+        self.functionalities = {
+            '1': self.scan,
+            '2': self.shell_manager,
+            '3': self.zsearch,
+            '4': self.fzfsearch,
+            '5': self.list_directory,
+            '6': self.theme_manager,
+            '7': self.history_search,
+            '8': self.get_buffer,
+            '9': self.add_to_cache
+        }
+
+        self.re_version_pattern = re.compile(r'\d*\.\d*\.\d*')
+
         self.brackets = deque()
         self.after_brackets = deque()
-        self.exes_to_search = ['node', 'g++', 'gcc', 'lua', 'pwsh']
+
+        self.exes_with_version = {}
+        self.exes_without_version = []
+        self.exes_to_search = [
+            'node', 'g++', 'gcc', 'lua', 'pwsh', 'java', 'rustc'
+        ]
+
+        # can't get all executables versions through the api
+        self.exes_to_search_with_winapi = ('pwsh', 'node', 'java')
 
         self.map_suffix = {
             'node': '.js',
             'g++': '.cpp',
             'gcc': '.c',
             'lua': '.lua',
-            'pwsh': ('.ps1', '.psd1', '.psm1')
+            'pwsh': ('.ps1', '.psd1', '.psm1'),
+            'java': '.java',
+            'rustc': '.rs'
         }
         self.map_lang_name = {
             'node': 'Node',
             'g++': 'Cpp',
             'gcc': 'C',
             'lua': 'Lua',
-            'pwsh': 'Pwsh'
+            'pwsh': 'Pwsh',
+            'java': 'Java',
+            'rustc': 'Rust'
         }
+
+        # only those that changes defaults
         self.argv_options = {
             'timeit',
+            'no-trackdir',
             'no-fallback',
             'no-watchdog',
             'disable-git',
@@ -80,13 +113,13 @@ class Server:
             'use-pygit2',
             'test-status',
             'linear',
+            'no-read-async',
             'multiproc',
-            'read-async',
             'let-crash'
         }
-        self.server_only = {'timeit', 'disable_git', 'enable_git'}
+        self.server_only = {'timeit', 'disable_git', 'enable_git', 'trackdir'}
 
-    def shell_manager(self, entry: str, addr: tuple[Any]) -> None:
+    def shell_manager(self, entry: str, addr: tuple[Any]) -> int | None:
         if entry.startswith('Init'):
             shell = entry.removeprefix('Init')
             self.dispatcher.register(addr, shell)
@@ -96,33 +129,17 @@ class Server:
 
         elif entry.startswith('Set'):
             opt = entry.removeprefix('Set')
-
-            # every opt with 'no-' will set False
-            val = not opt.startswith('no-')
-            opt = opt.removeprefix('no-').replace('-', '_')
-
-            if opt in self.server_only:
-                if opt == 'enable_git':
-                    Config.disable_git = False
-                else:
-                    setattr(Config, opt, val)
-                return
-
-            elif opt == 'use_gitstatus':
-                opt, val = 'use_git', False
-                interface.update_conf('use_pygit2', False)
-
-            interface.update_conf(opt, val)
+            self.handle_opt(opt)
 
         elif entry == 'Exit':
             self.clients -= 1
             if self.clients <= 0:
                 self.cache.finish()
-                raise SystemExit
+                return 1
 
         elif entry == 'Kill':
             self.cache.finish()
-            raise SystemExit
+            return 1
 
     def zsearch(self, entry: str, addr: tuple[Any]) -> None:
         # ./path/ -> path
@@ -164,7 +181,7 @@ class Server:
             pass
 
     def history_search(self, entry: str, addr: tuple[Any]) -> None:
-        queries, width, height, opt = entry.split(';')
+        width, height, opt, *queries = entry.split(';')
         width, height = int(width), int(height)
 
         res = utils.history_search(queries, width, height, opt)
@@ -192,7 +209,7 @@ class Server:
         duration = round(float(duration.replace(',', '.')), 1)
 
         # must add before cleanup because Set-Location needs full 'path'
-        if cwd != USER_HOME:
+        if cwd != USER_HOME and Config.trackdir:
             self.cache.add(cwd)
 
         cwd, link, target_dir = self._get_paths(cwd)
@@ -242,10 +259,50 @@ class Server:
 
         self.dispatcher.send_through(self.sock, prompt, addr)
 
+    def get_buffer(self, entry: str, addr: tuple[Any]) -> None:
+        if isinstance(Config.output, StringIO):
+            data = Config.output.getvalue()
+            self.dispatcher.send_through(self.sock, data, addr)
+
+            if 'k' not in entry:
+                Config.output.seek(0)
+                Config.output.truncate(0)
+
+    def add_to_cache(self, path: str, addr: tuple[Any]) -> None:
+        self.cache.add(path)
+
+    def mainloop(self) -> None:
+        while 1:
+            entry, addr = self.sock.recvfrom(4096)
+            init = time.perf_counter()
+            entry = entry.decode()
+            prot = entry[0]
+
+            sig_kill = self.functionalities[prot](entry[1:], addr)
+
+            if Config.timeit:
+                took = round(time.perf_counter() - init, 5)
+                msg = f'Took: {took}s'
+                if Config.output:
+                    Config.output.write(msg + '\n')
+                else:
+                    print(msg)
+
+            self.cleanup()
+
+            if sig_kill:
+                break
+
+    def get_version_winapi(self, exe: str) -> None:
+        version = utils.get_file_version(exe + '.exe')
+        if version:
+            self.exes_with_version.update({exe: version})
+            self.exes_to_search.remove(exe)
+
     def get_version(self, exe: str) -> None:
         try:
             out, err = subprocess.Popen(
-                f'{exe} --version',
+                [exe, '--version'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NO_WINDOW
@@ -256,19 +313,36 @@ class Server:
         if err:
             return
 
-        if exe in ('g++', 'gcc'):
-            out = out.splitlines()[0]
-            out = out[out.rindex(b')') + 2:]
-            self.exes_with_version.update({exe: out.strip().decode()})
+        out = out.splitlines()[0].decode()
+        match = self.re_version_pattern.search(out)
+        if match:
+            self.exes_with_version.update({exe: match.group()})
             self.exes_to_search.remove(exe)
-        elif exe == 'node':
-            self.exes_with_version.update({exe: out.strip().decode()[1:]})
-            self.exes_to_search.remove(exe)
-        elif exe == 'pwsh':
-            self.exes_with_version.update(
-                {exe: out.split()[-1].strip().decode()}
-            )
-            self.exes_to_search.remove(exe)
+
+    def handle_opt(self, opt, update: bool = True) -> None:
+        # every opt with 'no-' will set False
+        val = not opt.startswith('no-')
+        opt = opt.removeprefix('no-').replace('-', '_')
+
+        other = ''
+        if opt == 'enable_git':
+            opt, val = 'disable_git', False
+        elif opt == 'use_gitstatus':
+            opt, val = 'use_git', False
+            other = 'use_pygit2'
+        elif opt == 'use_pygit2':
+            other = 'use_git'
+        elif opt == 'use_git':
+            other = 'use_pygit2'
+
+        setattr(Config, opt, val)
+        if other:
+            setattr(Config, other, False)
+
+        if update and opt not in self.server_only:
+            interface.update_conf(opt, val)
+            if other:
+                interface.update_conf(other, False)
 
     def handle_output(self, got: str) -> None:
         if got is None:
@@ -307,13 +381,7 @@ class Server:
 
         # sets only known opts
         for opt in parsed_argv:
-            if opt == 'no-fallback':
-                Config.fallback = False
-            elif opt == 'no-watchdog':
-                Config.watchdog = False
-            else:
-                opt = opt.replace('-', '_')
-                setattr(Config, opt, True)
+            self.handle_opt(opt, update=False)
 
         for opt in [arg for arg in sys.argv if '=' in arg]:
             opt = opt.lstrip('--')
@@ -335,44 +403,20 @@ class Server:
             elif cmd == 'workers':
                 Config.workers = int_value
 
-    def mainloop(self) -> None:
-        while 1:
-            entry, addr = self.sock.recvfrom(4096)
-            init = time.perf_counter()
-            entry = entry.decode()
-            prot = entry[0]
-
-            self.functionalities[prot](entry[1:], addr)
-
-            if Config.timeit:
-                took = round(time.perf_counter() - init, 5)
-                print(f'Took: {took}s')
-
-            self.cleanup()
-
     def init_script(self) -> None:
 
         gc.disable()
         os.makedirs(APP_HOME, exist_ok=True)
 
-        entries = map(str, range(1, 8))
-        defined_functions = (
-            self.scan,
-            self.shell_manager,
-            self.zsearch,
-            self.fzfsearch,
-            self.list_directory,
-            self.theme_manager,
-            self.history_search
-        )
-        self.functionalities = dict(zip(entries, defined_functions))
-
         py_version = sys.version
         py_version = py_version[:py_version.index(' ')]
         self.py_notation = 'Python' + ';' + py_version
 
-        for exe in self.exes_to_search:
-            threading.Thread(target=self.get_version, args=(exe,)).start()
+        for exe in self.exes_to_search[:]:  # will modify itself
+            if exe in self.exes_to_search_with_winapi:
+                self.get_version_winapi(exe)
+            else:
+                threading.Thread(target=self.get_version, args=(exe,)).start()
 
         self.parse_config_file()
         self.parse_argv()
@@ -383,4 +427,5 @@ class Server:
     def cleanup(self):
         self.brackets.clear()
         self.after_brackets.clear()
+        interface.cleanup()
         gc.collect()

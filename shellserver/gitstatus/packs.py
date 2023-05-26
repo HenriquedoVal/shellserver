@@ -6,81 +6,76 @@ Low level operations on packfiles.
 
 import os
 import zlib
-from io import BytesIO
+import io
 from collections import deque
 
 
 class Packs:
     # {'path': (mtime, buffer)}
-    bytes_io_cache: dict[str, tuple[float, BytesIO]] = {}
-    # {'path': (mtime, {'hash': offset})}
-    packs_index_cache: dict[str, tuple[float, dict[str, int]]] = {}
+    bytes_io_cache: dict[str, tuple[float, io.BytesIO]] = {}
+    # [(mtime, path, stream)]
+    streams_to_transform_in_bytes_io: deque[
+        tuple[float, str, io.BufferedReader]
+    ] = deque()
 
     __slots__ = ()
 
     def search_idx(
             self,
             idx_path: str,
-            hash_: str,
-            rt_offset: bool = False
-    ) -> bool | int | None:
+            hash_: str
+    ) -> int | None:
         """
         Searches given `idx_path` for `hash_`.
         param `idx_path`: The path of the pack index file.
-        param `rt_offset`: Should this function return the offset of given file
-                           if it's found?
-        return: bool | int | None:
-            If `rt_offset` is set to False, returns boolean value
-            representing the presence of hash in the index.
-            If `rt_offset` is set to True, returns the integer
-            representing the offset of hash in the pack file.
-            If `rt_offset` is set to True, but hash wasn't found in
-            the index file, returns None.
+        param `hash_`: The hash to be searched.
+        return: int | None: The offset for the hash. None if not found
         """
 
-        mtime = os.stat(idx_path, follow_symlinks=False).st_mtime
-        cache = self.packs_index_cache.get(idx_path)
-        if cache and cache[0] == mtime:
-            if not rt_offset:
-                return hash_ in cache[1]
-            return cache[1].get(hash_)
+        idx = int(hash_[:2], 16)
 
-        hashes: deque[str] = deque()
-        offsets: deque[int] = deque()
+        file = self._get_buffer(idx_path)
 
-        with open(idx_path, 'rb') as file:
+        file.seek(8)
+        before = idx - 1
+        if before >= 0:
+            file.seek(before * 4, 1)
+            files_before = int.from_bytes(file.read(4), 'big')
+        else:
+            files_before = 0
 
-            file.seek(1028)
-            total_files = int.from_bytes(file.read(4), 'big')
+        files_after = int.from_bytes(file.read(4), 'big')
 
-            file.seek(
-                1032  # end of fanout_layer1
-                # + 20 * files_before  # each will have 20 bytes
-            )
+        file.seek(1028)
+        total_files = int.from_bytes(file.read(4), 'big')
 
-            for _ in range(total_files):
-                file_hash_bytes = file.read(20)
-                file_hash = hex(
-                    int.from_bytes(file_hash_bytes, 'big')
-                )[2:].zfill(40)
+        file.seek(1032 + 20 * files_before)
+        read = hex(int.from_bytes(file.read(20), 'big'))[2:].zfill(40)
+        if hash_ == read:
+            return self.get_offset(file, total_files, files_before)
 
-                hashes.append(file_hash)
+        file.seek(1032 + 20 * files_after)
+        read = hex(int.from_bytes(file.read(20), 'big'))[2:].zfill(40)
 
-            file.seek(
-                1032
-                + 20 * total_files  # jump layer2
-                + 4 * total_files  # jump layer3
-            )
+        mid = (files_after - files_before) // 2
+        while mid:
+            file.seek(1032 + 20 * (files_before + mid))
+            read = hex(int.from_bytes(file.read(20), 'big'))[2:].zfill(40)
 
-            for _ in range(total_files):
-                offsets.append(int.from_bytes(file.read(4), 'big'))
+            if hash_ == read:
+                return self.get_offset(
+                    file, total_files, files_before + mid
+                )
 
-        new_cache = dict(zip(hashes, offsets))
-        self.packs_index_cache[idx_path] = mtime, new_cache
+            # string comp
+            if hash_ > read:
+                files_before = files_before + mid
+            else:
+                files_after = files_before + mid
 
-        if not rt_offset:
-            return hash_ in new_cache
-        return new_cache.get(hash_)
+            mid = (files_after - files_before) // 2
+
+        return None
 
     def get_content_by_offset(
             self, pack_path: str, offset: int
@@ -94,29 +89,31 @@ class Packs:
         """
 
         file = self._get_buffer(pack_path)
+
         file.seek(offset)
 
-        int_ = int.from_bytes(file.read(1), 'big')
-        binary = f'{int_:b}'.zfill(8)
-        type_ = binary[1:4]
+        byte = file.read(1)[0]
+        type_ = (byte & 0x70) >> 4
 
-        if type_ == '110':  # delta type
+        if type_ in (6, 7):
             return None
 
-        obj_size = int_ & 0x0f
+        obj_size = byte & 0x0f
         bit_shift = 4
-        msb = binary.startswith('1')
-        # size = binary[4:]
+        msb = byte & 0x80
 
         while msb:
-            int_ = int.from_bytes(file.read(1), 'big')
-            binary = f'{int_:b}'.zfill(8)
-            obj_size |= (int_ & 0x7f) << bit_shift
+            byte = file.read(1)[0]
+            obj_size |= (byte & 0x7f) << bit_shift
             bit_shift += 7
-            msb = binary.startswith('1')
+            msb = byte & 0x80
 
-        # why + 11? I don't know, it works
-        return zlib.decompress(file.read(obj_size + 11))
+        # why + 11? On current tests it's the minimun value that don't raise
+        # I don't want to go byte by byte searching for eof because it's slow
+        # and zlib.decompress can deal with extra input
+        obj_data = zlib.decompress(file.read(obj_size + 11))
+        # assert len(obj_data) == obj_size
+        return obj_data
 
     def get_idx_of_pack(self, pack: str) -> str:
         """
@@ -124,7 +121,7 @@ class Packs:
         """
         return pack.removesuffix('pack') + 'idx'
 
-    def _get_buffer(self, path: str) -> BytesIO:
+    def _get_buffer(self, path: str) -> io.BytesIO | io.BufferedReader:
         mtime = os.stat(path, follow_symlinks=False).st_mtime
         cache = self.bytes_io_cache.get(path)
         if cache and cache[0] == mtime:
@@ -132,8 +129,29 @@ class Packs:
             c.seek(0)
             return c
 
-        with open(path, 'rb') as raw:
-            c = BytesIO(raw.read())
+        raw = open(path, 'rb')
+        self.streams_to_transform_in_bytes_io.append((mtime, path, raw))
+        return raw
 
-        self.bytes_io_cache[path] = mtime, c
-        return c
+    def _write_buffer(self) -> None:
+        while self.streams_to_transform_in_bytes_io:
+            mtime, path, raw = self.streams_to_transform_in_bytes_io.pop()
+            raw.seek(0)
+            c = io.BytesIO(raw.read())
+            raw.close()
+
+            self.bytes_io_cache[path] = mtime, c
+
+    def get_offset(
+        self, file: io.BytesIO | io.BufferedReader,
+        total_files: int,
+        target: int
+    ) -> int:
+        file.seek(
+            1032
+            + 20 * total_files  # jump layer2
+            + 4 * total_files  # jump layer3
+            + 4 * target
+        )
+
+        return int.from_bytes(file.read(4), 'big')

@@ -51,6 +51,7 @@ class TestGitstatusLowEmpty(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_empty_get_dot_git(self):
@@ -81,6 +82,7 @@ class TestGitstatusLowEmpty2(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_empty_get_info_packs_content(self):
@@ -195,6 +197,7 @@ class TestGitstatusLowLoose(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     '''
@@ -290,6 +293,7 @@ class TestGitstatusLowPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     '''
@@ -360,6 +364,7 @@ class TestGitstatusMediumEmpty(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_empty_get_packs(self):
@@ -399,6 +404,7 @@ class TestGitstatusMediumLoose(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     """
@@ -462,13 +468,14 @@ class TestGitstatusMediumPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_packed_get_packs(self):
         obj.set_packs()
 
         packs = os.path.join(self.temp, '.git/objects/pack')
-        local = [packs.lower() + '\\' + i
+        local = [packs + '\\' + i
                  for i in os.listdir(packs)
                  if i.endswith('pack')]
         tested = obj.packs_list
@@ -522,6 +529,7 @@ class TestGitstatusPacksPacked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_search_idx(self):
@@ -543,8 +551,8 @@ class TestGitstatusPacksPacked(unittest.TestCase):
         file_hash = obj.get_hash_of_file(self.temp + '/file.txt')
         filecr_hash = obj.get_hash_of_file(self.temp + '/file_cr.txt')
 
-        file_off = obj.search_idx(idx_path, file_hash, rt_offset=True)
-        filecr_off = obj.search_idx(idx_path, filecr_hash, rt_offset=True)
+        file_off = obj.search_idx(idx_path, file_hash)
+        filecr_off = obj.search_idx(idx_path, filecr_hash)
 
         file_obj = obj.get_content_by_offset(pack, file_off)
         filecr_obj = obj.get_content_by_offset(pack, filecr_off)
@@ -569,6 +577,7 @@ class TestGitstatusHighStatus(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status(self):
@@ -631,6 +640,7 @@ class TestGitstatusHighStatusIgnore(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_ignore(self):
@@ -694,6 +704,7 @@ class TestGitstatusInit(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_gitstatus(self):
@@ -722,6 +733,7 @@ class TestGitstatusPygit2(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_pygit2_full_routine(self):
@@ -763,6 +775,7 @@ class TestGitstatusTDD0(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status(self):
@@ -783,6 +796,7 @@ class TestGitstatusTDD1(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_ignore(self):
@@ -806,6 +820,7 @@ class TestGitstatusTDD2(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_ignore(self):
@@ -879,6 +894,7 @@ class TestGitstatusTDD3(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_ignore(self):
@@ -902,6 +918,7 @@ class TestGitstatusTDD4(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_modified_after_commit(self):
@@ -928,6 +945,7 @@ class TestGitstatusTDD5(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_status_handle_untracked_dir(self):
@@ -960,6 +978,7 @@ class TestGitstatusTDD6(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        obj._write_buffer()
         os.system(f'rmdir /s /q {cls.temp}')
 
     def test_nested_gitignore(self):

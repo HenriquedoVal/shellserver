@@ -1,10 +1,14 @@
+from __future__ import annotations
+
+import ctypes
+import json
 import os
 import pickle
 import threading
+import winreg
+from ctypes import wintypes
 from io import StringIO
 from collections import OrderedDict
-import json
-import winreg
 
 from .__init__ import CACHE_PATH, SEP
 
@@ -40,8 +44,65 @@ WT_SETTINGS_UNPACKAGED = os.path.join(
 )
 
 
+version_dll = ctypes.windll.version
+
+
+class VS_FIXEDFILEINFO(ctypes.Structure):
+    _fields_ = [
+        ("dwSignature", wintypes.DWORD),
+        ("dwStrucVersion", wintypes.DWORD),
+        ("dwFileVersionMS", wintypes.DWORD),
+        ("dwFileVersionLS", wintypes.DWORD),
+        ("dwProductVersionMS", wintypes.DWORD),
+        ("dwProductVersionLS", wintypes.DWORD),
+        ("dwFileFlagsMask", wintypes.DWORD),
+        ("dwFileFlags", wintypes.DWORD),
+        ("dwFileOS", wintypes.DWORD),
+        ("dwFileType", wintypes.DWORD),
+        ("dwFileSubtype", wintypes.DWORD),
+        ("dwFileDateMS", wintypes.DWORD),
+        ("dwFileDateLS", wintypes.DWORD),
+    ]
+
+
+def get_file_version(filename: str) -> str | None:
+
+    # Get the file version information
+    dwHandle = wintypes.DWORD()
+    dwLen = version_dll.GetFileVersionInfoSizeW(
+        filename, ctypes.byref(dwHandle)
+    )
+    if not dwLen:
+        return
+
+    lpData = ctypes.create_string_buffer(dwLen)
+    success = version_dll.GetFileVersionInfoW(
+        filename, dwHandle, dwLen, lpData
+    )
+    if not success:
+        return
+
+    pffi = ctypes.pointer(VS_FIXEDFILEINFO())
+    uLen = wintypes.UINT(ctypes.sizeof(VS_FIXEDFILEINFO))
+    success = version_dll.VerQueryValueW(
+        lpData, '\\', ctypes.byref(pffi), ctypes.byref(uLen)
+    )
+    if not success:
+        return
+
+    dwFileVersionMS = pffi.contents.dwFileVersionMS
+    dwFileVersionLS = pffi.contents.dwFileVersionLS
+    dwFileVersion = (
+        dwFileVersionMS >> 16,
+        dwFileVersionMS & 0xFFFF,
+        dwFileVersionLS >> 16,
+        # dwFileVersionLS & 0xFFFF
+    )
+    return ".".join(map(str, dwFileVersion))
+
+
 class DirCache:
-    __slots__ = 'dirs', 'flag'
+    __slots__ = 'dirs', 'save_on_exit'
 
     # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
     def __init__(self):
@@ -59,7 +120,7 @@ class DirCache:
             with open(CACHE_PATH, 'wb') as in_file:
                 pickle.dump([], in_file)
 
-        self.flag = False  # New paths were added to cache?
+        self.save_on_exit = False  # New paths were added to cache?
 
     def add(self, path: str) -> None:
         for item in self.dirs:
@@ -72,10 +133,10 @@ class DirCache:
 
             self.dirs.append([0, path, out])
 
-            # just want to set flag if it is false to start thread
+            # just want to set save_on_exit if it is false to start thread
             # that will capture WM_SAVE_YOURSELF
-            if not self.flag:
-                self.flag = True
+            if not self.save_on_exit:
+                self.save_on_exit = True
                 threading.Thread(target=self._signal_cap, daemon=True).start()
 
     def get(self, rel_path: str) -> str:
@@ -85,11 +146,27 @@ class DirCache:
         return ''
 
     def update_by_full_path(self, full_path: str) -> None:
-        for ind in range(len(self.dirs)):
-            if self.dirs[ind][1] == full_path:
-                self.dirs[ind][0] += 1
-                self.flag = True
+        # get idx and item or return
+        for idx, item in enumerate(self.dirs):
+            if item[1] == full_path:
                 break
+        else:
+            return
+
+        # set every entry precedence with same last path name to zero
+        last_path_name = item[2]
+        idxs_with_same_last_path_name = [
+            other_idx for other_idx, i in enumerate(self.dirs)
+            if i[2] == last_path_name
+        ]
+
+        for other_idx in idxs_with_same_last_path_name:
+            self.dirs[other_idx][0] = 0
+
+        # update only given full_path to one
+        self.dirs[idx][0] = 1
+
+        self.save_on_exit = True
 
     def finish(self):
         self._clear()
@@ -102,17 +179,19 @@ class DirCache:
         # if there were calls to clear the cache during this runtime
         if not os.path.exists(CACHE_PATH):
             return
-        if self.flag:
+        if self.save_on_exit:
             with open(CACHE_PATH, 'wb') as out:
                 pickle.dump(self.dirs, out, protocol=5)
 
     def _clear(self) -> None:
-        aux = []
-        for item in self.dirs:
-            if not os.path.exists(item[1]):
-                aux.append(item)
+        aux = [
+            item for item in self.dirs
+            if not os.path.exists(item[1])
+        ]
+
         if aux:
-            self.flag = True
+            self.save_on_exit = True
+
         for item in aux:
             self.dirs.remove(item)
 
@@ -121,7 +200,6 @@ class DirCache:
 
         def finish():
             self.finish()
-            self.flag = False  # will make new threads possible
             raise SystemExit
 
         root = tk.Tk()
@@ -136,9 +214,12 @@ class Dispatcher:
     necessary to each shell, apply them and send
     data through socket.
     """
-    __slots__ = 'addrs', 'funcs'
+    __slots__ = 'addrs', 'funcs', 'buf_size'
 
-    def __init__(self):
+    def __init__(self, buf_size: int):
+        # afaik, udp header might be 20 or 40 bytes but none of these work
+        # must be missing something because no value around it works
+        self.buf_size = buf_size - 2000
         self.addrs = {}
         self.funcs = {'pwsh': self._pwsh_func}
 
@@ -155,10 +236,10 @@ class Dispatcher:
         if prepare and func is not None:
             data = func(data)
 
-        while data[60_000:]:
-            msg = '1' + data[:60_000]
+        while data[self.buf_size:]:
+            msg = '1' + data[:self.buf_size]
             sock.sendto(msg.encode(), addr)
-            data = data[60_000:]
+            data = data[self.buf_size:]
 
         msg = '0' + data
 
@@ -169,11 +250,8 @@ class Dispatcher:
 
 
 def history_search(
-    queries: str, width: int, height: int, opt: str = ''
+    queries: list[str], width: int, height: int, opt: str = ''
 ) -> str:
-
-    if not queries:
-        return 'Pass queries as arguments.'
 
     with open(HIST_FILE, 'r', encoding='utf-8') as history:
         content = history.read()
@@ -194,7 +272,7 @@ def history_search(
             printed = counter
             height_reached = True
 
-        for query in queries.split():
+        for query in queries:
             if 'c' not in opt:
                 query, item = query.lower(), item.lower()
 

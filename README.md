@@ -5,7 +5,7 @@ It's a mix of [Starship](https://github.com/starship/starship) and [Zoxide](http
 On Starship, every 'Enter' keystroke spawns a new process, which may cause a lag between prompts.  
 Zoxide will raise a new process every time you call it.  
 ShellServer raises the server only in the first shell creation and will _communicate_ with your shell on every 'Enter' keystroke.  
-Fastness comes from not having spawning time, which seems to be way higher in Windows.  
+Fastness comes from not having spawning time, which is way higher in Windows.  
   
 But if your hardware gives you a fluid shell experience using Starship, I recommend that you keep with it because it's way more customizable.  
 
@@ -14,9 +14,9 @@ But if your hardware gives you a fluid shell experience using Starship, I recomm
 ### Prompt with a fast glance at what is in the directory  
 
 ![Bloated](./images/bloated.png)  
-This is the most bloated prompt that you will get.
-It will indicate the existence of Python, C, C++, Lua, Node, and PowerShell files in the directory.  
-The compilers searched are GCC and G++.  
+This is a sample of the prompt that you will get.
+It will indicate the existence of Python, C, C++, Lua, Node, PowerShell, Rust, and Java files in the directory.  
+The C compilers searched are GCC and G++.  
   
 ### No lag from spawning processes  
 
@@ -25,8 +25,9 @@ The compilers searched are GCC and G++.
 ### Better 'cd'  
 
 ![p, pz](./images/p_pz.gif)
-- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`  
-- `p` behaves like `cd` for unknown paths
+- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`.
+- `p -a` or `p -a <path>` to manually add `path` to tracked dirs if `trackdir` is set to false.
+- `p` behaves like `cd` for unknown paths.
   
 Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
   
@@ -124,7 +125,7 @@ As many things might change in versions below 0.1.0, consider upgrading both whe
 > pip install --upgrade shellserver
 > Update-Module ShellServer
 ~~~
-v0.0.8+ will work with the PowerShell ShellServer module 0.0.6+.
+v0.0.16+ will work with the PowerShell ShellServer module 0.0.10+.
 
 ## Debugging
 
@@ -149,13 +150,15 @@ There are also:
 - --disable-git
 - --use-git  # instead of gitstatus subpackage
 - --use-pygit2
-- --linear: Fill gitstatus synchronously
+- --linear: Fill gitstatus info synchronously
 - --multiproc: Very beta and will not be updated
-- --read-async: Speed increase but error-prone
+- --no-read-async
 - --let-crash: At this point, it's probably useless
 - --test-status: Put gitstatus subpackage result and git.exe status side-by-side
 
 Pwsh module cmdlets:
+
+- `Get-ShellServerBuffer`: get output if it is set to 'buffer'. Pass `-k` to keep the content in memory.
 - `Switch-ServerTimeout`: arg in ms. 
 - `Switch-ServerOpt`: Sets most of the argv options in runtime:
     - use-git

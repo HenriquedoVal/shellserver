@@ -88,12 +88,25 @@ function global:prompt {
 function p {
   param(
   [switch]$o,
+  [switch]$a,
   [string]$path
   )
 
+  if ($a.IsPresent) {
+    if ($path) {
+      $path = (Resolve-Path $path -ErrorAction 'Stop').Path
+    }
+    else {
+      $path = (Get-Location).Path
+    }
+    $buffer = $Encoder.GetBytes("9$path")
+    $Sock.Send($buffer) > $nul
+    return
+  }
+
   if (-not $path) {
-      Set-Location
-      return
+    Set-Location
+    return
   }
 
   if ($args) {
@@ -151,7 +164,9 @@ function Get-ServerListDir {
   $buffer = $Encoder.GetBytes("5$opts;$resPath")
   $Sock.Send($buffer) > $nul
   $response = Receive-Msg
-  $ExecutionContext.InvokeCommand.ExpandString($response)
+  if ($response) {
+    $ExecutionContext.InvokeCommand.ExpandString($response)
+  }
 }
 
 
@@ -205,8 +220,8 @@ function Search-History {
   $width = $Host.UI.RawUI.BufferSize.Width
   $height = $Host.UI.RawUI.BufferSize.Height
 
-  $arg = $args -join ' '
-  $buffer = $Encoder.GetBytes("7$arg;$width;$height;$opt")
+  $arg = $args -join ';'
+  $buffer = $Encoder.GetBytes("7$width;$height;$opt;$arg")
   $Sock.Send($buffer) > $nul
 
   $response = Receive-Msg
@@ -227,6 +242,8 @@ function Switch-ServerOpt {
     [ArgumentCompletions(
       'timeit',
       'no-timeit',
+      'trackdir',
+      'no-trackdir',
       'fallback',
       'no-fallback',
       'watchdog',
@@ -250,6 +267,24 @@ function Switch-ServerOpt {
   $buffer = $Encoder.GetBytes("2Set$option")
   $Sock.Send($buffer) > $nul
 
+}
+
+function Get-ShellServerBuffer {
+  param(
+    [switch]$k
+  )
+
+  $opt = ''
+  if ($k.IsPresent) {
+    $opt += 'k'
+  }
+
+  $buffer = $Encoder.GetBytes("8$opt")
+  $Sock.Send($buffer) > $nul
+
+  $response = Receive-Msg
+  $ExecutionContext.InvokeCommand.ExpandString($response)
+  
 }
 
 function Receive-Msg {
@@ -372,4 +407,4 @@ $scriptBlock = {
 
 Register-ArgumentCompleter -CommandName p -ParameterName path -ScriptBlock $scriptBlock
 
-Export-ModuleMember -Function @("p", "pz", "ll", "la",  "Search-History", "Switch-Theme", "Switch-ServerTimeout", "Switch-ServerOpt")
+Export-ModuleMember -Function @("p", "pz", "ll", "la",  "Search-History", "Switch-Theme", "Switch-ServerTimeout", "Switch-ServerOpt", "Get-ShellServerBuffer")

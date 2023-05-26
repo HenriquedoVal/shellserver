@@ -119,7 +119,7 @@ class Base(packs.Packs):
                     name = read_str_until(b'\x00')
                     entrylen += 1
 
-                res[name.lower()] = mtime
+                res[name] = mtime
 
                 if self.fallback and len(res) > max_entries:
                     raise IndexTooBigError
@@ -136,7 +136,7 @@ class Base(packs.Packs):
         Returns two lists in this order: fixed and relative.
         """
         raw_ignored = [
-            i.strip().lower()
+            i.strip()
             for i in raw_ignored
             if not i.strip().startswith('#')
         ]
@@ -170,7 +170,7 @@ class Base(packs.Packs):
 
         for pack in self.packs_list:
             idx = self.get_idx_of_pack(pack)
-            offset = self.search_idx(idx, hash_, rt_offset=True)
+            offset = self.search_idx(idx, hash_)
             if offset is None:
                 continue
             content = self.get_content_by_offset(pack, offset)
@@ -461,7 +461,8 @@ class Base(packs.Packs):
         return: str: String of status, empty string for nothing to report.
         """
         out, err = subprocess.Popen(
-            f'git -C {self.git_dir} --no-optional-locks status --porcelain',
+            ['git', '-C', self.git_dir,
+             '--no-optional-locks', 'status', '--porcelain'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW
@@ -515,7 +516,7 @@ class Base(packs.Packs):
             hexa = data[stop + 1:start]
             hexa_str = f'{int.from_bytes(hexa, "big"):x}'.zfill(40)
 
-            res.append((type_.decode(), hexa_str, filename.decode().lower()))
+            res.append((type_.decode(), hexa_str, filename.decode()))
 
             if not data[start + 1:]:
                 break

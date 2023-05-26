@@ -31,7 +31,7 @@ try:
     bitmask = windll.kernel32.GetLogicalDrives()
     for letter in string.ascii_uppercase:
         if bitmask & 1:
-            letter = letter.lower() + ':'
+            letter = letter + ':'
             th.Thread(
                 target=populate, args=(letter,), daemon=True
             ).start()

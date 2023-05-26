@@ -3,16 +3,18 @@
 # light_theme = 'Solarized Light'
 
 ## General
+# trackdir = true  # automatically add dirs for `p` use
 # git_timeout = 120
 # disable_git = false
 # use_git = false  # instead of gitstatus subpackage
+# read_async = true
 
 ## Plugins
+# If you want to use it, not if you have it
 # watchdog = true
 # use_pygit2 = false
 
 ## Beta
-# read_async = false
 # multiproc = false
 # workers = cpu_count - 1  # int
 # workers = 4

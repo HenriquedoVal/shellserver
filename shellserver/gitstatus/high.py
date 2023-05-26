@@ -80,7 +80,7 @@ class High(base.Base):
             multiproc: bool = False,
             workers: int = OS_CPU_COUNT - 1,
             linear: bool = False,
-            read_async: bool = False,
+            read_async: bool = True,
             fallback: bool = True,
             watchdog: bool = True,
             output: io.TextIOWrapper | utils.DiscardOutput | None = None,
@@ -94,8 +94,10 @@ class High(base.Base):
         self.fallback = fallback
         self.watchdog = watchdog
 
-        self.output: io.TextIOWrapper | utils.DiscardOutput
-        if not isinstance(output, io.TextIOWrapper) or output is None:
+        self.output: io.TextIOWrapper | io.StringIO | utils.DiscardOutput
+        if not isinstance(
+            output, (io.TextIOWrapper, io.StringIO)
+        ) or output is None:
             self.output = utils.DiscardOutput()
         else:
             self.output = output
@@ -113,7 +115,9 @@ class High(base.Base):
             str, tuple[float | None, str | None]] = {}
         self.dirs_mtimes: dict[str, float] = {}
 
-        self.files_readden: deque[tuple[ctypes.Array[Any], str]] = deque()
+        self.files_readden: deque[
+            tuple[ctypes.Array[Any], utils.OVERLAPPED, float, str]
+        ] = deque()
 
         self.mp_main = multiproc
         self.multiproc = (multiproc and workers) or _is_worker
@@ -145,7 +149,7 @@ class High(base.Base):
             self.proc_num = int(mp.current_process().name[-1])
 
     def init(self, git_dir: str, branch: str) -> None:
-        self.git_dir = git_dir.lower()
+        self.git_dir = git_dir
         self.branch = branch
 
         if self.multiproc and not self.mp_main:
@@ -176,12 +180,6 @@ class High(base.Base):
 
         self.output.write(f'\nGIT_DIR: {self.git_dir}\n')
         self.output.write(f'Branch {self.branch}{n}')
-
-        if plugins.HAS_WATCHDOG and self.watchdog:
-            cache = self.get_cached_result()
-            # valid values are None or str
-            if not isinstance(cache, int):
-                return cache
 
         try:
             self.set_index_tracked()
@@ -230,13 +228,10 @@ class High(base.Base):
         self.modified = 0
         self.deleted = 0
 
-        if plugins.HAS_WATCHDOG and self.watchdog:
-            self.save_status_in_cache(status_string)
-
         if not self.multiproc:
             self.output.write(
                 'Entries classified: '
-                f'{utils.DirEntryWrapper.counter}'
+                f'{utils.DirEntryWrapper.counter}\n'
             )
         utils.DirEntryWrapper.counter = 0
 
@@ -413,8 +408,10 @@ class High(base.Base):
 
         file_hash_in_tree = item[1]
         if not self.linear and self.read_async:
-            buffer = utils.read_async(file.path, st_size)
-            self.files_readden.append((buffer, file_hash_in_tree))
+            buffer, overl = utils.read_async(file.path, st_size)
+            self.files_readden.append(
+                (buffer, overl, st_size, file_hash_in_tree)
+            )
             return
 
         # use_cr: interchangeably switch the use of crlf
@@ -632,17 +629,23 @@ class High(base.Base):
 
     def save_status_in_cache(self, status: str | None) -> None:
         plugins.observer.event_queue.join()
-        # dont care if it's None
-        mtime = self.dirs_mtimes.get(self.git_dir)
-        self.final_result_cache[self.git_dir] = mtime, status
         self.event_handlers[self.git_dir].flag = False
         self.output.write('Cache saved\n')
 
-    def handle_files_readden_async(self) -> None:
-        # TODO: sync before going on, bug on busy cpu
-        # maybe a lot of ReadFileEx calls?
+        # although the event_queue was joined, some thread
+        # might still be processing
+        time.sleep(0.001)
 
-        for buffer, hash_ in self.files_readden:
+        mtime = self.dirs_mtimes.get(self.git_dir)
+        self.final_result_cache[self.git_dir] = mtime, status
+
+    def handle_files_readden_async(self) -> None:
+        while self.files_readden:
+            buffer, overl, size, hash_ = self.files_readden.popleft()
+            if overl.Offset != size:
+                self.files_readden.append((buffer, overl, size, hash_))
+                continue
+
             content = buffer.raw
             file_hash = self.get_hash_of_file(
                 content, self.use_cr, is_buf=True
