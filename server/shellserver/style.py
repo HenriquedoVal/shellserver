@@ -317,6 +317,7 @@ symbols_map = {
     'Pwsh': '',  # maybe  
     'Java': '',
     'Rust': '',
+    'Csharp': '',
     'Status': '',
     'Clock': '🕓',
     'Duration': '',
@@ -336,6 +337,7 @@ light_colors = {
     'Pwsh': "\x1b[34m",
     'Java': '\x1b[31m',
     'Rust': '\x1b[31m',
+    'Csharp': "\x1b[94m",
     'Status': "\x1b[31m",
     'Reset': "\x1b[0m",
     'No_error': "\x1b[32m",
@@ -355,6 +357,7 @@ dark_colors = {
     'Pwsh': "\x1b[94m",
     'Java': '\x1b[91m',
     'Rust': '\x1b[91m',
+    'Csharp': "\x1b[94m",
     'Status': "\x1b[91m",
     'Reset': "\x1b[0m",
     'No_error': "\x1b[92m",

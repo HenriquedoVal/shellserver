@@ -72,6 +72,7 @@ function global:prompt {
     }
     "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
   }
+  $response = $response.Substring(1)
   $ExecutionContext.InvokeCommand.ExpandString($response)
 
   $global:LASTEXITCODE = $origLastExitCode
@@ -393,6 +394,9 @@ function Switch-ReadlineTheme {
 # The server will respond the first communication with the completions
 # for the 'p' function. It's safer to keep this in the end of file.
 #
+
+$buffer = $Encoder.GetBytes('2Get')
+$Sock.Send($buffer) > $nul
 
 $raw = Receive-Msg
 $completions = @($raw -split ';')

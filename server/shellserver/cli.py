@@ -1,6 +1,6 @@
 import argparse
 
-from .__init__ import CACHE_PATH, PORT
+from .__init__ import PORT, APP_HOME
 
 
 def kill():
@@ -13,10 +13,12 @@ def kill():
 def clear():
     import os
 
-    try:
-        os.remove(CACHE_PATH)
-    except FileNotFoundError:
-        pass
+    for file in ('ShellServerCache', 'traceback'):
+        file_path = os.path.join(APP_HOME, file)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    os.removedirs(APP_HOME)
 
 
 def main():

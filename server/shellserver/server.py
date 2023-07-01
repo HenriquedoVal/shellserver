@@ -14,15 +14,17 @@ from typing import Any
 
 from win_basic_tools import Ls
 
-from .__init__ import APP_HOME, SEP, CONFIG_PATH, USER_HOME
+from .__init__ import SEP, CONFIG_PATH, USER_HOME
 from . import utils
 from .style import style
 from .gitstatus import interface
 
 try:
     import tomllib
+    TomlDecodeError = tomllib.TOMLDecodeError
 except ImportError:
     import tomlkit as tomllib
+    TomlDecodeError = tomllib.exceptions.TOMLKitError
 
 
 class Config:
@@ -31,6 +33,7 @@ class Config:
     dark_theme: str = 'Tango Dark'
     light_theme: str = 'Solarized Light'
     trackdir: bool = True
+    permanent: bool = False
 
     # for gitstatus
     use_git: bool
@@ -77,7 +80,7 @@ class Server:
         self.exes_with_version = {}
         self.exes_without_version = []
         self.exes_to_search = [
-            'node', 'g++', 'gcc', 'lua', 'pwsh', 'java', 'rustc'
+            'node', 'g++', 'gcc', 'lua', 'pwsh', 'java', 'rustc', 'dotnet'
         ]
 
         # can't get all executables versions through the api
@@ -90,7 +93,8 @@ class Server:
             'lua': '.lua',
             'pwsh': ('.ps1', '.psd1', '.psm1'),
             'java': '.java',
-            'rustc': '.rs'
+            'rustc': '.rs',
+            'dotnet': '.cs'
         }
         self.map_lang_name = {
             'node': 'Node',
@@ -99,7 +103,8 @@ class Server:
             'lua': 'Lua',
             'pwsh': 'Pwsh',
             'java': 'Java',
-            'rustc': 'Rust'
+            'rustc': 'Rust',
+            'dotnet': 'Csharp'
         }
 
         # only those that changes defaults
@@ -115,17 +120,24 @@ class Server:
             'linear',
             'no-read-async',
             'multiproc',
+            'permanent',
             'let-crash'
         }
-        self.server_only = {'timeit', 'disable_git', 'enable_git', 'trackdir'}
+
+        self.server_only = {
+            'timeit', 'disable_git', 'enable_git', 'trackdir', 'permanent'
+        }
 
     def shell_manager(self, entry: str, addr: tuple[Any]) -> int | None:
         if entry.startswith('Init'):
             shell = entry.removeprefix('Init')
-            self.dispatcher.register(addr, shell)
             self.clients += 1
-            completions = ';'.join(item[2] for item in self.cache.dirs)
-            self.dispatcher.send_through(self.sock, completions, addr)
+            self.dispatcher.register(addr, shell)
+
+        elif entry == 'Get':
+            self.dispatcher.send_through(
+                self.sock, self.cache.completions, addr
+            )
 
         elif entry.startswith('Set'):
             opt = entry.removeprefix('Set')
@@ -133,7 +145,7 @@ class Server:
 
         elif entry == 'Exit':
             self.clients -= 1
-            if self.clients <= 0:
+            if not Config.permanent and self.clients <= 0:
                 self.cache.finish()
                 return 1
 
@@ -149,7 +161,7 @@ class Server:
         self.dispatcher.send_through(self.sock, result, addr, prepare=False)
 
     def fzfsearch(self, entry: str, addr: tuple[Any]) -> None:
-        if not entry:  # if its the first
+        if entry == 'Get':
             result = '\n'.join([i[1] for i in self.cache.dirs])
             self.dispatcher.send_through(self.sock, result, addr)
         else:
@@ -209,8 +221,13 @@ class Server:
         duration = round(float(duration.replace(',', '.')), 1)
 
         # must add before cleanup because Set-Location needs full 'path'
-        if cwd != USER_HOME and Config.trackdir:
-            self.cache.add(cwd)
+        # Don't add drive letters as it makes no sense in pwsh.
+        dirname = os.path.dirname(cwd)
+        if cwd != USER_HOME and Config.trackdir and dirname != cwd:
+            changed = self.cache.add(cwd)
+
+            if changed:
+                self.dispatcher.set_update()
 
         cwd, link, target_dir = self._get_paths(cwd)
 
@@ -257,7 +274,7 @@ class Server:
             self.after_brackets, no_error, width, duration
         )
 
-        self.dispatcher.send_through(self.sock, prompt, addr)
+        self.dispatcher.send_through(self.sock, prompt, addr, send_update=True)
 
     def get_buffer(self, entry: str, addr: tuple[Any]) -> None:
         if isinstance(Config.output, StringIO):
@@ -269,7 +286,9 @@ class Server:
                 Config.output.truncate(0)
 
     def add_to_cache(self, path: str, addr: tuple[Any]) -> None:
-        self.cache.add(path)
+        changed = self.cache.add(path)
+        if changed:
+            self.dispatcher.set_update()
 
     def mainloop(self) -> None:
         while 1:
@@ -363,7 +382,7 @@ class Server:
             s = open(CONFIG_PATH, 'rb')
             toml = tomllib.load(s)
             s.close()
-        except (FileNotFoundError, tomllib.TOMLDecodeError):
+        except (FileNotFoundError, TomlDecodeError):
             toml = {}
 
         for config, type_ in Config.__annotations__.items():
@@ -406,17 +425,16 @@ class Server:
     def init_script(self) -> None:
 
         gc.disable()
-        os.makedirs(APP_HOME, exist_ok=True)
 
         py_version = sys.version
         py_version = py_version[:py_version.index(' ')]
         self.py_notation = 'Python' + ';' + py_version
 
+        for exe in self.exes_to_search_with_winapi:
+            self.get_version_winapi(exe)
+
         for exe in self.exes_to_search[:]:  # will modify itself
-            if exe in self.exes_to_search_with_winapi:
-                self.get_version_winapi(exe)
-            else:
-                threading.Thread(target=self.get_version, args=(exe,)).start()
+            threading.Thread(target=self.get_version, args=(exe,)).start()
 
         self.parse_config_file()
         self.parse_argv()

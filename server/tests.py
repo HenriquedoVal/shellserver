@@ -7,19 +7,16 @@ import subprocess
 import tempfile
 import unittest
 
-from shellserver.gitstatus import interface, plugins
+from shellserver.gitstatus import interface
 
-
-# TODO: solve this
-plugins.HAS_WATCHDOG = False
 
 interface.init()
 obj = interface._Globals.obj
 
 
 def popen(cmd: str) -> bytes:
-    out, err = subprocess.Popen(
-        cmd,
+    out, _ = subprocess.Popen(
+        cmd.split(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         creationflags=subprocess.CREATE_NO_WINDOW

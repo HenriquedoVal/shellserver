@@ -1,3 +1,0 @@
-darkdetect>=0.7.1
-win-basic-tools>=0.3.3
-tomlkit>=0.11.5; python_version < '3.11'

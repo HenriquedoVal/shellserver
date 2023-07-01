@@ -15,7 +15,7 @@ But if your hardware gives you a fluid shell experience using Starship, I recomm
 
 ![Bloated](./images/bloated.png)  
 This is a sample of the prompt that you will get.
-It will indicate the existence of Python, C, C++, Lua, Node, PowerShell, Rust, and Java files in the directory.  
+It will indicate the existence of Python, C, C++, C#, Lua, Node, PowerShell, Rust, and Java files in the directory.  
 The C compilers searched are GCC and G++.  
   
 ### No lag from spawning processes  
@@ -25,31 +25,43 @@ The C compilers searched are GCC and G++.
 ### Better 'cd'  
 
 ![p, pz](./images/p_pz.gif)
+<details>
+<summary>Options</summary>
+
 - `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`.
-- `p -a` or `p -a <path>` to manually add `path` to tracked dirs if `trackdir` is set to false.
+- `p -a [path]`: Manually add current dir or given `path` to tracked dirs if `trackdir` is set to false.
+- `p -j [path]`: Go to Junction of current dir or given `path`
 - `p` behaves like `cd` for unknown paths.
-  
-Note: [fzf](https://github.com/junegunn/fzf) is a dependency to use 'pz'  
+</details>
   
 ### Switching Theme
   
 ![Switch-Theme](./images/switch_theme.gif)
-Can take five different arguments: all, system, terminal, blue, and readline.  
+Name changed to `Switch-ShellServerTheme`.  
+<details>
+<summary>Options</summary>
+
+Can take four different arguments: system, terminal, blue, and readline.  
 - terminal: Toggles Windows Terminal default theme.
 - system: Toggles system-wide Dark Mode.  
 - blue: Toggles 'Blue light reduction'.  
-- all: Same as not passing arguments. Do all the above.  
 - readline: Toggles PSReadLine colors. 
   
 The `system` option is not working properly on Windows 11 22h2...
+</details>
   
 ### Searching history
 
 ![history](./images/history.gif)
+Name changed to `Search-ShellServerHistory`.  
+<details>
+<summary>Options</summary>
+
 The amount of data printed will be limited to fit the terminal.
 - pass `-a` to get the full result
 - `-c` to make the search case-sensitive
 - `-ac` and `-ca` are allowed too
+</details>
 
 ### Listing directory
 
@@ -96,9 +108,9 @@ options:
 
 ## Requirements
 
-- Python 3.9+ or latest [Pypy](https://www.pypy.org/) (still slower than Python 3.11)
-- PowerShell 6.2+ (I think)
-- Any NerdFont (I use MesloLGS NF)
+- Python 3.9+ or latest [Pypy](https://www.pypy.org/) (slower than Python 3.11)
+- PowerShell 7.2+
+- Any NerdFont (I use MesloLGS NF [patched](https://github.com/romkatv/powerlevel10k/blob/master/font.md))
 - A xterm compatible terminal
 
 ## Installation
@@ -110,9 +122,12 @@ ShellServer will work only in PowerShell on Windows.
 > Install-Module ShellServer -Scope CurrentUser
 ~~~
 
+Then you can run [this script](./on_startup.ps1) as admin to set the server to run on startup and
+`Start-ScheduledTask ShellServer`.
+  
 In your PowerShell profile:
 ~~~PowerShell
-# By the beginning of the file
+# If you have not set the server on startup. By the beginning of the file
 pythonw -m shellserver  # note the 'w'
 
 # By the end of the file
@@ -125,7 +140,7 @@ As many things might change in versions below 0.1.0, consider upgrading both whe
 > pip install --upgrade shellserver
 > Update-Module ShellServer
 ~~~
-v0.0.16+ will work with the PowerShell ShellServer module 0.0.10+.
+Last break: Client (PowerShell module) v0.1.0 and Server (Python) v0.0.17.
 
 ## Debugging
 
@@ -159,8 +174,8 @@ There are also:
 Pwsh module cmdlets:
 
 - `Get-ShellServerBuffer`: get output if it is set to 'buffer'. Pass `-k` to keep the content in memory.
-- `Switch-ServerTimeout`: arg in ms. 
-- `Switch-ServerOpt`: Sets most of the argv options in runtime:
+- `Switch-ShellServerTimeout`: arg in ms. 
+- `Switch-ShellServerOptions`: Sets most of the argv options in runtime:
     - use-git
     - use-gitstatus: Use gitstatus subpackage for git status info
     - use-pygit2

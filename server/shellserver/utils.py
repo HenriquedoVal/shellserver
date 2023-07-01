@@ -10,7 +10,7 @@ from ctypes import wintypes
 from io import StringIO
 from collections import OrderedDict
 
-from .__init__ import CACHE_PATH, SEP
+from .__init__ import CACHE_PATH, SEP, APP_HOME
 
 
 HIST_FILE = os.path.join(
@@ -102,7 +102,7 @@ def get_file_version(filename: str) -> str | None:
 
 
 class DirCache:
-    __slots__ = 'dirs', 'save_on_exit'
+    __slots__ = 'dirs', 'save_on_exit', 'completions'
 
     # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
     def __init__(self):
@@ -113,6 +113,8 @@ class DirCache:
         else:
             self.dirs = []
 
+            os.makedirs(APP_HOME, exist_ok=True)
+
             # Need to create file or cache will never save
             # if it doesn't exist.
             # Need to put something there or server might break
@@ -121,23 +123,33 @@ class DirCache:
                 pickle.dump([], in_file)
 
         self.save_on_exit = False  # New paths were added to cache?
+        self.completions = ';'.join(item[2] for item in self.dirs)
 
-    def add(self, path: str) -> None:
+    def add(self, path: str) -> bool:
+        "Return if the cache changed."
+
         for item in self.dirs:
             if item[1] == path:
-                break
+                return False
+
+        out = path[path.rindex(SEP) + 1:].lower()
+        if not out:
+            out = path.strip(SEP).lower()
+
+        if self.completions:
+            self.completions += ';' + out
         else:
-            out = path[path.rindex(SEP) + 1:].lower()
-            if not out:
-                out = path.strip(SEP).lower()
+            self.completions = out
 
-            self.dirs.append([0, path, out])
+        self.dirs.append([0, path, out])
 
-            # just want to set save_on_exit if it is false to start thread
-            # that will capture WM_SAVE_YOURSELF
-            if not self.save_on_exit:
-                self.save_on_exit = True
-                threading.Thread(target=self._signal_cap, daemon=True).start()
+        # just want to set save_on_exit if it is false to start thread
+        # that will capture WM_SAVE_YOURSELF
+        if not self.save_on_exit:
+            self.save_on_exit = True
+            threading.Thread(target=self._signal_cap, daemon=True).start()
+
+        return True
 
     def get(self, rel_path: str) -> str:
         for item in self.dirs:
@@ -214,29 +226,49 @@ class Dispatcher:
     necessary to each shell, apply them and send
     data through socket.
     """
-    __slots__ = 'addrs', 'funcs', 'buf_size'
+    __slots__ = 'addrs', 'addr_update', 'funcs', 'buf_size', 'update_counter'
 
     def __init__(self, buf_size: int):
         # afaik, udp header might be 20 or 40 bytes but none of these work
         # must be missing something because no value around it works
         self.buf_size = buf_size - 2000
         self.addrs = {}
+        self.addr_update = {}
         self.funcs = {'pwsh': self._pwsh_func}
+        self.update_counter = 0
+
+    def set_update(self) -> None:
+        self.update_counter += 1
 
     def register(self, addr: int, shell: str):
         self.addrs.update({addr: shell})
+        self.addr_update.update({addr: 0})
 
     def send_through(
-        self, sock, data: str, addr: tuple[str, int], *, prepare=True
+        self, sock, data: str, addr: tuple[str, int],
+        *, prepare=True, send_update=False
     ):
 
         shell = self.addrs.get(addr, 'pwsh')
         func = self.funcs.get(shell)
 
+        if send_update:
+            addr_update_counter = self.addr_update.get(addr)
+
+            if addr_update_counter is None:
+                up = '0'
+            else:
+                up = '1' if addr_update_counter < self.update_counter else '0'
+
+                if up == '1':
+                    self.addr_update[addr] = self.update_counter
+
+            data = up + data
+
         if prepare and func is not None:
             data = func(data)
 
-        while data[self.buf_size:]:
+        while len(data) > self.buf_size:
             msg = '1' + data[:self.buf_size]
             sock.sendto(msg.encode(), addr)
             data = data[self.buf_size:]
