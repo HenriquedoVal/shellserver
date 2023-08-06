@@ -14,9 +14,9 @@ from typing import Any
 
 from win_basic_tools import Ls
 
-from .__init__ import SEP, CONFIG_PATH, USER_HOME
+from .__init__ import CONFIG_PATH, USER_HOME
 from . import utils
-from .style import style
+from . import style
 from .gitstatus import interface
 
 try:
@@ -36,18 +36,18 @@ class Config:
     permanent: bool = False
 
     # for gitstatus
-    use_git: bool
-    use_pygit2: bool
-    git_timeout: int
-    let_crash: bool
-    test_status: bool
-    linear: bool
-    watchdog: bool
-    multiproc: bool
-    workers: int
-    read_async: bool
-    fallback: bool
-    output: str | None
+    use_git: bool = False
+    use_pygit2: bool = False
+    git_timeout: int = 2500
+    let_crash: bool = False
+    test_status: bool = False
+    linear: bool = False
+    watchdog: bool = True
+    multiproc: bool = False
+    workers: int = 0
+    read_async: bool = True
+    fallback: bool = True
+    output: str | None = None
 
 
 class Server:
@@ -61,15 +61,15 @@ class Server:
 
         self.cache = utils.DirCache()
         self.functionalities = {
-            '1': self.scan,
-            '2': self.shell_manager,
-            '3': self.zsearch,
-            '4': self.fzfsearch,
+            '1': self.scan_dir,
+            '2': self.server_manager,
+            '3': self.get_abs_by_ref,
+            '4': self.get_abspath_and_update,
             '5': self.list_directory,
             '6': self.theme_manager,
             '7': self.history_search,
             '8': self.get_buffer,
-            '9': self.add_to_cache
+            '9': self.manage_cache
         }
 
         self.re_version_pattern = re.compile(r'\d*\.\d*\.\d*')
@@ -128,7 +128,7 @@ class Server:
             'timeit', 'disable_git', 'enable_git', 'trackdir', 'permanent'
         }
 
-    def shell_manager(self, entry: str, addr: tuple[Any]) -> int | None:
+    def server_manager(self, entry: str, addr: tuple[Any]) -> int | None:
         if entry.startswith('Init'):
             shell = entry.removeprefix('Init')
             self.clients += 1
@@ -149,21 +149,28 @@ class Server:
                 self.cache.finish()
                 return 1
 
+        elif entry == 'Conf':
+            res = StringIO()
+            for conf, val in Config.__dict__.items():
+                if conf[0] == '_':
+                    continue
+                res.write(f'{conf};{val}\n')
+
+            self.dispatcher.send_through(self.sock, res.getvalue(), addr)
+
         elif entry == 'Kill':
             self.cache.finish()
             return 1
 
-    def zsearch(self, entry: str, addr: tuple[Any]) -> None:
-        # ./path/ -> path
-        # .path -> .path
-        entry = entry.strip(SEP).removeprefix('.' + SEP).lower()
+    def get_abs_by_ref(self, entry: str, addr: tuple[Any]) -> None:
         result = self.cache.get(entry)
         self.dispatcher.send_through(self.sock, result, addr, prepare=False)
 
-    def fzfsearch(self, entry: str, addr: tuple[Any]) -> None:
+    def get_abspath_and_update(self, entry: str, addr: tuple[Any]) -> None:
         if entry == 'Get':
             result = '\n'.join([i[1] for i in self.cache.dirs])
             self.dispatcher.send_through(self.sock, result, addr)
+        # Client will send back the chosen for update in here
         else:
             self.cache.update_by_full_path(entry)
             self.cache.sort()
@@ -181,8 +188,8 @@ class Server:
 
     def theme_manager(self, entry: str, addr: tuple[Any]) -> None:
         try:
-            if entry in ('all', ''):
-                utils.call_all_theme_funcs()
+            if entry == 'prompt':
+                style.toggle_prompt()
             elif entry == 'terminal':
                 utils.windows_terminal_change(Config)
             elif entry == 'blue':
@@ -213,7 +220,7 @@ class Server:
 
         return cwd, link, target_dir
 
-    def scan(self, entry: str, addr: tuple[Any]) -> None:
+    def scan_dir(self, entry: str, addr: tuple[Any]) -> None:
         no_error = int(entry[0])
         cwd, width, duration = entry[1:].split(';')
 
@@ -222,8 +229,7 @@ class Server:
 
         # must add before cleanup because Set-Location needs full 'path'
         # Don't add drive letters as it makes no sense in pwsh.
-        dirname = os.path.dirname(cwd)
-        if cwd != USER_HOME and Config.trackdir and dirname != cwd:
+        if cwd != USER_HOME and Config.trackdir:
             changed = self.cache.add(cwd)
 
             if changed:
@@ -269,7 +275,7 @@ class Server:
                    and file.name.endswith(self.map_suffix[exe])):
                     self.after_brackets.append(notation)
 
-        prompt = style(
+        prompt = style.get_prompt(
             cwd, link, self.brackets,
             self.after_brackets, no_error, width, duration
         )
@@ -285,8 +291,10 @@ class Server:
                 Config.output.seek(0)
                 Config.output.truncate(0)
 
-    def add_to_cache(self, path: str, addr: tuple[Any]) -> None:
-        changed = self.cache.add(path)
+    def manage_cache(self, entry: str, addr: tuple[Any]) -> None:
+        opt, arg = entry[:3], entry[3:]
+        changed = self.cache.manual_manage(opt, arg)
+
         if changed:
             self.dispatcher.set_update()
 
@@ -338,6 +346,20 @@ class Server:
             self.exes_with_version.update({exe: match.group()})
             self.exes_to_search.remove(exe)
 
+    def handle_output(self, got: str) -> None:
+        if got is None:
+            Config.output = None
+        elif got == 'stdout':
+            Config.output = sys.stdout
+        elif got == 'buffer':
+            Config.output = StringIO()
+        else:
+            try:
+                s = open(got, 'a')
+                Config.output = s
+            except Exception:
+                Config.output = None
+
     def handle_opt(self, opt, update: bool = True) -> None:
         # every opt with 'no-' will set False
         val = not opt.startswith('no-')
@@ -362,20 +384,6 @@ class Server:
             interface.update_conf(opt, val)
             if other:
                 interface.update_conf(other, False)
-
-    def handle_output(self, got: str) -> None:
-        if got is None:
-            Config.output = None
-        elif got == 'stdout':
-            Config.output = sys.stdout
-        elif got == 'buffer':
-            Config.output = StringIO()
-        else:
-            try:
-                s = open(got, 'a')
-                Config.output = s
-            except Exception:
-                Config.output = None
 
     def parse_config_file(self) -> None:
         try:

@@ -1,5 +1,3 @@
-#!python
-
 import os
 import random
 import string
@@ -989,6 +987,60 @@ class TestGitstatusTDD6(unittest.TestCase):
         ni(self.temp, 'other/dir/abcd/.gitignore')
         with open(self.temp + '/other/dir/abcd/.gitignore', 'w') as f:
             f.write('*\n')
+        git = obj.parse_git_status()
+        self.assertIsNone(git)
+        self.assertIsNone(obj.status())
+
+
+class TestGitstatusTDD7(unittest.TestCase):
+    "Test initial slashes on .gitignore"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        obj._write_buffer()
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_initial_slash_on_gitignore(self):
+        ni(self.temp, '.gitignore')
+        with open(self.temp + '.gitignore', 'w') as f:
+            f.write('.gitignore\n')
+            f.write('/some.txt\n')
+            f.flush()
+
+        ni(self.temp, 'some.txt')
+        git = obj.parse_git_status()
+        self.assertIsNone(git)
+        self.assertIsNone(obj.status())
+
+
+class TestGitstatusTDD8(unittest.TestCase):
+    "Test brackets on .gitignore"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        obj._write_buffer()
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test_brackets_on_gitignore(self):
+        ni(self.temp, '.gitignore')
+        with open(self.temp + '.gitignore', 'w') as f:
+            f.write('.gitignore\n')
+            f.write('[Ss]ome.txt\n')
+            f.flush()
+
+        ni(self.temp, 'some.txt')
         git = obj.parse_git_status()
         self.assertIsNone(git)
         self.assertIsNone(obj.status())

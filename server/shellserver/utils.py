@@ -102,10 +102,12 @@ def get_file_version(filename: str) -> str | None:
 
 
 class DirCache:
-    __slots__ = 'dirs', 'save_on_exit', 'completions'
+    __slots__ = 'dirs', 'save_on_exit', 'completions', 'manual_functions'
 
     # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
     def __init__(self):
+        self.save_on_exit = False  # New paths were added to cache?
+
         if os.path.exists(CACHE_PATH):
             with open(CACHE_PATH, 'rb') as in_file:
                 self.dirs = pickle.load(in_file)
@@ -122,38 +124,81 @@ class DirCache:
             with open(CACHE_PATH, 'wb') as in_file:
                 pickle.dump([], in_file)
 
-        self.save_on_exit = False  # New paths were added to cache?
         self.completions = ';'.join(item[2] for item in self.dirs)
+
+    def manual_manage(self, opt: str, arg: str) -> bool:
+        """"""
+        func = (self.add, self.delete)[int(opt in ('Del', 'DRf'))]
+
+        args_to_func = [arg]
+        if func == self.delete:
+            args_to_func.append(opt == 'Del')
+
+        return func(*args_to_func)
+
+    def delete(self, path_or_ref: str, abs_path: bool) -> bool:
+        """
+        Purges `path_or_ref` if `abs_path` is True, else, delete first entry.
+        Return: The cache changed?
+        """
+
+        pos = (1, 2)[int(not abs_path)]
+        path_or_ref = path_or_ref.lower()
+        items_to_delete = []
+
+        for idx in range(len(self.dirs)):
+            item = self.dirs[idx]
+            if item[pos].lower() == path_or_ref:
+                items_to_delete.append(item)
+                if not abs_path:
+                    break
+
+        if not items_to_delete:
+            return False
+
+        for i in items_to_delete:
+            self.dirs.remove(i)
+
+        # will be slow with 1000 entries?
+        self.completions = ';'.join(item[2] for item in self.dirs)
+        self._set_save_on_exit()
+
+        return True
 
     def add(self, path: str) -> bool:
         "Return if the cache changed."
 
-        for item in self.dirs:
-            if item[1] == path:
+        path_ref = ''
+        if ';' in path:
+            path, path_ref = path.split(';')
+
+        # if the user wanted a new ref, just add it
+        if not path_ref:
+            path_ref = path[path.rindex(SEP) + 1:].lower()
+
+            path_lower = path.lower()
+            for item in self.dirs:
+                if item[1].lower() == path_lower:
+                    return False
+
+            dirname = os.path.dirname(path)
+            if dirname == path:
                 return False
 
-        out = path[path.rindex(SEP) + 1:].lower()
-        if not out:
-            out = path.strip(SEP).lower()
-
         if self.completions:
-            self.completions += ';' + out
+            self.completions += ';' + path_ref
         else:
-            self.completions = out
+            self.completions = path_ref
 
-        self.dirs.append([0, path, out])
+        self.dirs.append([0, path, path_ref])
 
-        # just want to set save_on_exit if it is false to start thread
-        # that will capture WM_SAVE_YOURSELF
-        if not self.save_on_exit:
-            self.save_on_exit = True
-            threading.Thread(target=self._signal_cap, daemon=True).start()
+        self._set_save_on_exit()
 
         return True
 
-    def get(self, rel_path: str) -> str:
+    def get(self, path_ref: str) -> str:
         for item in self.dirs:
-            if item[2] == rel_path:
+            if item[2] == path_ref:
                 return item[1]
         return ''
 
@@ -178,7 +223,14 @@ class DirCache:
         # update only given full_path to one
         self.dirs[idx][0] = 1
 
-        self.save_on_exit = True
+        self._set_save_on_exit()
+
+    def _set_save_on_exit(self):
+        # just want to set save_on_exit if it is false to start thread
+        # that will capture WM_SAVE_YOURSELF
+        if not self.save_on_exit:
+            self.save_on_exit = True
+            threading.Thread(target=self._signal_cap, daemon=True).start()
 
     def finish(self):
         self._clear()
@@ -202,7 +254,7 @@ class DirCache:
         ]
 
         if aux:
-            self.save_on_exit = True
+            self._set_save_on_exit()
 
         for item in aux:
             self.dirs.remove(item)
@@ -226,31 +278,34 @@ class Dispatcher:
     necessary to each shell, apply them and send
     data through socket.
     """
-    __slots__ = 'addrs', 'addr_update', 'funcs', 'buf_size', 'update_counter'
+
+    __slots__ = (
+        'addr_shell', 'addr_update', 'shell_func', 'buf_size', 'update_counter'
+    )
 
     def __init__(self, buf_size: int):
         # afaik, udp header might be 20 or 40 bytes but none of these work
         # must be missing something because no value around it works
         self.buf_size = buf_size - 2000
-        self.addrs = {}
+        self.addr_shell = {}
         self.addr_update = {}
-        self.funcs = {'pwsh': self._pwsh_func}
+        self.shell_func = {'pwsh': self._pwsh_func}
         self.update_counter = 0
 
     def set_update(self) -> None:
         self.update_counter += 1
 
     def register(self, addr: int, shell: str):
-        self.addrs.update({addr: shell})
-        self.addr_update.update({addr: 0})
+        self.addr_shell.update({addr: shell})
+        self.addr_update.update({addr: self.update_counter})
 
     def send_through(
         self, sock, data: str, addr: tuple[str, int],
         *, prepare=True, send_update=False
     ):
 
-        shell = self.addrs.get(addr, 'pwsh')
-        func = self.funcs.get(shell)
+        shell = self.addr_shell.get(addr, 'pwsh')
+        func = self.shell_func.get(shell)
 
         if send_update:
             addr_update_counter = self.addr_update.get(addr)

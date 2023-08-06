@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'shellserver'
-version = '0.0.17'
+version = '0.0.18'
 authors = [
   {name = 'Henrique do Val'},
   {email = 'henrique.val@hotmail.com'}
@@ -15,8 +15,7 @@ readme = {file = "README.md", content-type = 'text/markdown'}
 requires-python = '>=3.9'
 license = {text = 'MIT'}
 dependencies = [
-  'darkdetect>=0.7.1',
-  'win-basic-tools>=0.3.4',
+  'win-basic-tools>=0.4.0',
   "tomlkit>=0.11.5; python_version < '3.11'"
 ]
 
@@ -40,7 +39,7 @@ Home-page = "https://github.com/HenriquedoVal/shellserver"
 [project.scripts]
 shellserver = 'shellserver.cli:main'
 
-# [project.optional-dependencies]
+[project.optional-dependencies]
 # all = [
 #   "whatchdog>=3.2.1",
 #   "ssd_checker>=1.0.3",
@@ -49,8 +48,3 @@ shellserver = 'shellserver.cli:main'
 
 [tool.setuptools.packages.find]
 include = ["shellserver", "shellserver.gitstatus"]
-
-[tool.pylsp-mypy]
-enabled = false
-live_mode = false
-dmypy = true

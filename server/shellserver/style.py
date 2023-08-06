@@ -1,13 +1,71 @@
 import os
-import threading
 from datetime import datetime
-
-import darkdetect
 
 from .__init__ import SEP, USER_HOME
 
 
-def darkdetect_callback(arg):
+symbols_map = {
+    'Git': '',
+    'Branch': '',
+    'Python': '',
+    'Lua': '🌙',
+    'Node': '',
+    'C': '',
+    'Cpp': '',
+    'Pwsh': '',  # maybe  
+    'Java': '',
+    'Rust': '',
+    'Csharp': '',
+    'Status': '',
+    'Clock': '🕓',
+    'Duration': '',
+    'Error': '✘'
+}
+
+light_colors = {
+    'Cwd': "\x1b[36m",
+    'Link': "\x1b[90m",
+    'Git': "\x1b[31m",
+    'Branch': "\x1b[35m",
+    'Python': "\x1b[33m",
+    'Lua': "\x1b[34m",
+    'Node': "\x1b[32m",
+    'C': "\x1b[34m",
+    'Cpp': "\x1b[34m",
+    'Pwsh': "\x1b[34m",
+    'Java': '\x1b[31m',
+    'Rust': '\x1b[31m',
+    'Csharp': "\x1b[94m",
+    'Status': "\x1b[31m",
+    'Reset': "\x1b[0m",
+    'No_error': "\x1b[32m",
+    'Error': "\x1b[31m"
+}
+
+dark_colors = {
+    'Cwd': "\x1b[96m",
+    'Link': "\x1b[90m",
+    'Git': "\x1b[91m",
+    'Branch': "\x1b[95m",
+    'Python': "\x1b[93m",
+    'Lua': "\x1b[94m",
+    'Node': "\x1b[32m",
+    'C': "\x1b[34m",
+    'Cpp': "\x1b[94m",
+    'Pwsh': "\x1b[94m",
+    'Java': '\x1b[91m',
+    'Rust': '\x1b[91m',
+    'Csharp': "\x1b[94m",
+    'Status': "\x1b[91m",
+    'Reset': "\x1b[0m",
+    'No_error': "\x1b[92m",
+    'Error': "\x1b[91m"
+}
+
+colors_map = dark_colors
+
+
+def toggle_prompt():
     global colors_map
 
     if colors_map is dark_colors:
@@ -223,7 +281,7 @@ def apply_escape_codes(
     return result
 
 
-def style(
+def get_prompt(
     cwd: str,
     link: str,
     brackets: list,
@@ -304,68 +362,3 @@ def style(
     )
 
     return result
-
-
-symbols_map = {
-    'Git': '',
-    'Branch': '',
-    'Python': '',
-    'Lua': '🌙',
-    'Node': '',
-    'C': '',
-    'Cpp': '',
-    'Pwsh': '',  # maybe  
-    'Java': '',
-    'Rust': '',
-    'Csharp': '',
-    'Status': '',
-    'Clock': '🕓',
-    'Duration': '',
-    'Error': '✘'
-}
-
-light_colors = {
-    'Cwd': "\x1b[36m",
-    'Link': "\x1b[90m",
-    'Git': "\x1b[31m",
-    'Branch': "\x1b[35m",
-    'Python': "\x1b[33m",
-    'Lua': "\x1b[34m",
-    'Node': "\x1b[32m",
-    'C': "\x1b[34m",
-    'Cpp': "\x1b[34m",
-    'Pwsh': "\x1b[34m",
-    'Java': '\x1b[31m',
-    'Rust': '\x1b[31m',
-    'Csharp': "\x1b[94m",
-    'Status': "\x1b[31m",
-    'Reset': "\x1b[0m",
-    'No_error': "\x1b[32m",
-    'Error': "\x1b[31m"
-}
-
-dark_colors = {
-    'Cwd': "\x1b[96m",
-    'Link': "\x1b[90m",
-    'Git': "\x1b[91m",
-    'Branch': "\x1b[95m",
-    'Python': "\x1b[93m",
-    'Lua': "\x1b[94m",
-    'Node': "\x1b[32m",
-    'C': "\x1b[34m",
-    'Cpp': "\x1b[94m",
-    'Pwsh': "\x1b[94m",
-    'Java': '\x1b[91m',
-    'Rust': '\x1b[91m',
-    'Csharp': "\x1b[94m",
-    'Status': "\x1b[91m",
-    'Reset': "\x1b[0m",
-    'No_error': "\x1b[92m",
-    'Error': "\x1b[91m"
-}
-
-colors_map = dark_colors if darkdetect.isDark() else light_colors
-
-threading.Thread(
-    target=darkdetect.listener, args=(darkdetect_callback,), daemon=True
-).start()

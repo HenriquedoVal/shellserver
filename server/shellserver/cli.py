@@ -1,6 +1,28 @@
-import argparse
+from .__init__ import PORT, APP_HOME, CACHE_PATH
 
-from .__init__ import PORT, APP_HOME
+
+HELP_MSG = (
+    '''
+usage: shellserver <COMMAND> [Args]
+       shellserver {kill|clear|dump}
+       shellserver run [Args]
+
+shellserver gives some functionalities for better navigation on PowerShell
+
+commands:
+
+    run       Run the server.
+    kill      Kill the server.
+    clear     clear the server cache.
+    dump      Dump the server cache.
+
+options:
+  -h, --help  show this help message and exit'''
+)
+
+
+def run():
+    from shellserver import __main__
 
 
 def kill():
@@ -21,20 +43,46 @@ def clear():
     os.removedirs(APP_HOME)
 
 
+def dump():
+    import os
+    import pickle
+
+    try:
+        from rich import print
+    except ImportError:
+        from pprint import pprint as print
+
+    if os.path.exists(CACHE_PATH):
+        with open(CACHE_PATH, 'rb') as file:
+            content = pickle.load(file)
+
+        print(content)
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        prog='shellserver'
-    )
+    import sys
 
-    parser.add_argument(
-        'command',
-        choices=('kill', 'clear'),
-        help='"kill" to kill the server, "clear" to clear the cache.'
-    )
+    prog, *initial_args = sys.argv
+    if not initial_args:
+        print(HELP_MSG)
+        sys.exit(1)
 
-    args = parser.parse_args()
+    for entry in initial_args:
+        if entry in ('-h', '--help'):
+            print(HELP_MSG)
+            sys.exit(1)
 
-    if args.command == 'kill':
+    cmd, *args = initial_args
+
+    if cmd == 'run':
+        run()
+    elif cmd == 'kill':
         kill()
-    elif args.command == 'clear':
+    elif cmd == 'clear':
         clear()
+    elif cmd == 'dump':
+        dump()
+    else:
+        print("Unknown command.")
+        print(HELP_MSG)
+        sys.exit(1)

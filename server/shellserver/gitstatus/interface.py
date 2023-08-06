@@ -61,6 +61,9 @@ def gitstatus(target_path: str) -> tuple[str | None, str | None]:
     else:
         return None, None
 
+    if branch.startswith('detached at '):
+        return branch, None
+
     _Globals.obj.init(git_dir, branch)
 
     if plugins.HAS_WATCHDOG and Config.watchdog:
@@ -172,7 +175,11 @@ def _get_branch_on_head(git_dir: str) -> str:
     with open(head_path) as head:
         content = head.read()
 
-    return content[content.rindex('/') + 1:].strip()
+    # `content` can be an sha1 or path-like
+    if '/' in content:
+        return content[content.rindex('/') + 1:].strip()
+
+    return f'detached at {content[:7]}'
 
 
 class _Globals:
