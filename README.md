@@ -1,11 +1,14 @@
 # ShellServer
 
-It's a mix of [Starship](https://github.com/starship/starship) and [Zoxide](https://github.com/ajeetdsouza/zoxide) but faster.  
+It's a mix of [Starship](https://github.com/starship/starship) and [Zoxide](https://github.com/ajeetdsouza/zoxide) made to be faster on Windows.  
   
+The common approach of piping binaries outputs is almost free on
+Linux but this is not true on Windows, the cost of raising processes is
+way higher and long living processes are preferred.  
+
 On Starship, every 'Enter' keystroke spawns a new process, which may cause a lag between prompts.  
 Zoxide will raise a new process every time you call it.  
 ShellServer raises the server only in the first shell creation and will _communicate_ with your shell on every 'Enter' keystroke.  
-Fastness comes from not having spawning time, which is way higher in Windows.  
   
 But if your hardware gives you a fluid shell experience using Starship, I recommend that you keep with it because it's way more customizable.  
 
@@ -41,13 +44,16 @@ Name changed to `Switch-ShellServerTheme`.
 <details>
 <summary>Options</summary>
 
-Can take four different arguments: system, terminal, blue, and readline.  
+Switches colors to conform with light/dark themes.  
+Can take five arguments: system, terminal, blue, prompt, and readline.  
+- system: Toggles system-wide Light/Dark Mode.  
 - terminal: Toggles Windows Terminal default theme.
-- system: Toggles system-wide Dark Mode.  
 - blue: Toggles 'Blue light reduction'.  
+- prompt: Toggles prompt colors. 
 - readline: Toggles PSReadLine colors. 
   
 The `system` option is not working properly on Windows 11 22h2...
+
 </details>
   
 ### Searching history
@@ -64,6 +70,32 @@ The amount of data printed will be limited to fit the terminal.
 </details>
 
 ### Listing directory
+
+<details>
+<summary>Options</summary>
+
+There are several switches. See `help ll`.
+`ll -List -Icons -Color` will use these options for the current execution.  
+An additional `-SetDefault` will make your flags persist.  
+Use `-NoOutput` if you want to set it in $profile.  
+  
+Most flags can be aliased like:  
+`ll -l -ac -he`  
+Or prepending `-o` plus the initial of the flag:  
+`ll -o acilmhCAH`  
+  
+Meaning:  
+a : all files  
+c : colors  
+i : icons  
+l : list  
+m : modified time  
+h : headers  
+C : creation time  
+A : access time  
+H : hour  
+
+</details>
 
 ![lss](./images/ll_la.gif)  
 
@@ -97,13 +129,21 @@ The server knows how many clients it haves and will know if you quit the shell w
 but if the window or tab is closed on the 'X' button it may outlive the shell. 
 
 ~~~
-usage: shellserver [-h] {kill,clear}
+usage: shellserver <COMMAND> [Args]
+       shellserver {kill|clear|dump}
+       shellserver run [Args]
 
-positional arguments:
-  {kill,clear}  "kill" to kill the server, "clear" to clear the cache.
+shellserver gives some functionalities for better navigation on PowerShell
+
+commands:
+
+    run       Run the server.
+    kill      Kill the server.
+    clear     clear the server cache.
+    dump      Dump the server cache.
 
 options:
-  -h, --help    show this help message and exit
+  -h, --help  show this help message and exit
 ~~~
 
 ## Requirements
@@ -119,7 +159,7 @@ ShellServer will work only in PowerShell on Windows.
 
 ~~~PowerShell
 > pip install shellserver  # or pip install --user shellserver
-> Install-Module ShellServer -Scope CurrentUser
+> Install-Module ShellServer -Scope CurrentUser -AllowClobber
 ~~~
 
 Then you can run [this script](./on_startup.ps1) as admin to set the server to run on startup and
@@ -140,7 +180,7 @@ As many things might change in versions below 0.1.0, consider upgrading both whe
 > pip install --upgrade shellserver
 > Update-Module ShellServer
 ~~~
-Last break: Client (PowerShell module) v0.1.0 and Server (Python) v0.0.17.
+Last break: Client (PowerShell module) v0.1.1 and Server (Python) v0.0.18.
 
 ## Debugging
 
@@ -173,6 +213,7 @@ There are also:
 
 Pwsh module cmdlets:
 
+- `Get-ShellServerConfig`: get the current server config.
 - `Get-ShellServerBuffer`: get output if it is set to 'buffer'. Pass `-k` to keep the content in memory.
 - `Switch-ShellServerTimeout`: arg in ms. 
 - `Switch-ShellServerOptions`: Sets most of the argv options in runtime:
