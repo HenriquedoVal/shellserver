@@ -71,6 +71,8 @@ The amount of data printed will be limited to fit the terminal.
 
 ### Listing directory
 
+![lss](./images/ll_la.gif)  
+
 <details>
 <summary>Options</summary>
 
@@ -96,8 +98,6 @@ A : access time
 H : hour  
 
 </details>
-
-![lss](./images/ll_la.gif)  
 
 ### Plugins
 
