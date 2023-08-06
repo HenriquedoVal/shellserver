@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Threading;
 using System.Text;
 using System.Net;
@@ -22,27 +23,18 @@ namespace ShellServer
 {
     public class Globals : IModuleAssemblyInitializer, IModuleAssemblyCleanup
     {
-        public static readonly string admin =
-            IsUserAnAdmin() ? "(Admin) " : "";
-
-        public static readonly string HOME =
-            Environment.GetEnvironmentVariable("USERPROFILE");
+        public static UdpClient client = new UdpClient();
+        public static Hashtable lightColors;
+        public static Hashtable darkColors;
+        public static string[] pathCmdCompletions;
+        public static bool isLight;
 
         const short port = 5432;
 
-        public static UdpClient client = new UdpClient();
-        public static IPEndPoint endpoint = new IPEndPoint(
+        static IPEndPoint endpoint = new IPEndPoint(
                 IPAddress.Loopback, port
         );
-        public static UTF8Encoding encoder = new UTF8Encoding();
-
-        public static bool isLight = false;
-        public static bool firstPrompt = true;
-
-        public static string[] pathCmdCompletions;
-
-        public static Hashtable lightColors;
-        public static Hashtable darkColors;
+        static UTF8Encoding encoder = new UTF8Encoding();
 
         private const string predictorIdentifier = "ce865750-f55b-4bf6-a302-fcba803b1442";
 
@@ -58,7 +50,7 @@ namespace ShellServer
             );
         }
 
-        public void OnRemove(PSModuleInfo modInfo)
+        public void OnRemove(PSModuleInfo psModuleInfo)
         {
             SubsystemManager.UnregisterSubsystem(
                     SubsystemKind.CommandPredictor, new Guid(predictorIdentifier)
@@ -92,14 +84,14 @@ namespace ShellServer
             // Serialize???
             var colors = new Hashtable();
 
-            colors["Command"]                = "DarkYellow"  ;
-            colors["Comment"]                = "\x1b[90m"    ;
-            colors["ContinuationPrompt"]     = "DarkGray"    ;
-            colors["DefaultToken"]           = "DarkGray"    ;
-            colors["Emphasis"]               = "DarkBlue"    ;
-            colors["InlinePrediction"]       = "DarkGray"    ;
-            colors["Keyword"]                = "Green"       ;
-            colors["ListPrediction"]         = "DarkYellow"  ;
+            colors["Command"]                = "\x1b[93m"    ;
+            colors["Comment"]                = "\x1b[92m"    ;
+            colors["ContinuationPrompt"]     = "\x1b[94m"    ;
+            colors["DefaultToken"]           = "\x1b[97m"    ;
+            colors["Emphasis"]               = "\x1b[96m"    ;
+            colors["InlinePrediction"]       = "\x1b[90m"    ;
+            colors["Keyword"]                = "\x1b[92m"    ;
+            colors["ListPrediction"]         = "\x1b[33m"    ;
             colors["ListPredictionSelected"] = "\x1b[34;238m";
             colors["Member"]                 = "\x1b[34m"    ;
             colors["Number"]                 = "\x1b[34m"    ;
@@ -160,9 +152,14 @@ namespace ShellServer
             SubsystemManager.RegisterSubsystem(SubsystemKind.CommandPredictor, predictor);
         }
 
-        public static void ExitHandler(object sender, EventArgs e)
+        static void ExitHandler(object sender, EventArgs e)
         {
-            SendToServer("2Exit");
+            try
+            {
+                SendToServer("2Exit");
+            }
+            catch (Exception) {}
+
         }
 
         public static void SendToServer(string msg)
@@ -193,10 +190,6 @@ namespace ShellServer
 
             return msg;
         }
-
-        [DllImport("shell32.dll", SetLastError=true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool IsUserAnAdmin();
     }
 
     class ReadLine
@@ -226,7 +219,7 @@ namespace ShellServer
 
         public static void SetReadLineTheme(ref Hashtable colors)
         {
-            var arg = new object[0];
+            var arg = Array.Empty<object>();
             var inst = ReadLine.Invoke(
                     ReadLine.GetOptions,
                     ref arg
@@ -256,7 +249,7 @@ namespace ShellServer
 
             Globals.SendToServer("4Get");
             
-            ShellServerFuzzyPredictor.container = new List<ValueTuple<int, Tuple<string, string>>>();
+            ShellServerFuzzyPredictor.container.Clear();
 
             string response = Globals.ReceiveFromServer();
             string[] paths = response.Split('\n');
@@ -269,10 +262,12 @@ namespace ShellServer
             
                 if (lastPath.Length == 0) lastPath = fullPath;
             
-                ShellServerFuzzyPredictor.container.Add((20, Tuple.Create(lastPath, fullPath)));
+                ShellServerFuzzyPredictor.container.Add(
+                        (20, Tuple.Create(lastPath, fullPath))
+                );
             }
-
         }
+
         public static string ServerListDir(
                 string path, string curdir, string opt
         )
@@ -280,28 +275,144 @@ namespace ShellServer
             string target;
 
             if (path is null) target = curdir;
-            else target = System.IO.Path.Combine(curdir, path);
+            else target = Path.Combine(curdir, path);
             
             string msg = $"5{opt};{target}";
 
             Globals.SendToServer(msg);
             return Globals.ReceiveFromServer();
         }
+    }
 
-        public static void ToggleReadLineTheme()
+    class SeverRefPathsAndDirsCompleter: IArgumentCompleter
+    {
+        DirsCompleter Dirs = new DirsCompleter();
+        ServerPathRefsCompleter ServerRefs = new ServerPathRefsCompleter();
+
+        public IEnumerable<CompletionResult> CompleteArgument(
+            string commandName,
+            string parameterName,
+            string wordToComplete,
+            CommandAst commandAst,
+            System.Collections.IDictionary fakeBoundParameters
+        )
         {
-            if (Globals.isLight)
+            foreach (CompletionResult comp in ServerRefs.CompleteArgument(
+                        commandName, parameterName, wordToComplete, commandAst, fakeBoundParameters)
+            )
             {
-                ReadLine.SetReadLineTheme(ref Globals.darkColors);
-                Globals.isLight = false;
-                return;
+                yield return comp;
             }
 
-            ReadLine.SetReadLineTheme(ref Globals.lightColors);
-            Globals.isLight = true;
+            foreach (CompletionResult comp in Dirs.CompleteArgument(
+                        commandName, parameterName, wordToComplete, commandAst, fakeBoundParameters)
+            )
+            {
+                yield return comp;
+            }
+        }
+    }
+
+    class ServerPathRefsCompleter: IArgumentCompleter
+    {
+         public IEnumerable<CompletionResult> CompleteArgument(
+            string commandName,
+            string parameterName,
+            string wordToComplete,
+            CommandAst commandAst,
+            System.Collections.IDictionary fakeBoundParameters
+        )
+        {
+            // Refer directly Globals so it can dinamically change
+            foreach (string comp in Globals.pathCmdCompletions)
+            {
+                if (
+                        string.IsNullOrEmpty(wordToComplete)
+                        || comp.StartsWith(wordToComplete)
+                )
+                {
+                    string res = comp;
+                    if (comp.Contains(' ')) res = $@"""{comp}""";
+                    yield return new CompletionResult(
+                            res, res,
+                            CompletionResultType.ParameterValue,
+                            "ShellServer path reference"
+                    );
+                }
+            }
+        }
+    }
+
+    class DirsCompleter: IArgumentCompleter
+    {
+        public IEnumerable<CompletionResult> CompleteArgument(
+            string commandName,
+            string parameterName,
+            string wordToComplete,
+            CommandAst commandAst,
+            System.Collections.IDictionary fakeBoundParameters
+        )
+        {
+            var pathCompletions = CompletionCompleters.CompleteFilename(wordToComplete);
+            foreach (var res in pathCompletions)
+            {
+                // ToolTip is the abs path.
+                var attr = File.GetAttributes(res.ToolTip);
+                bool isDir = (attr & FileAttributes.Directory) > 0;
+                
+                if (isDir) yield return res;
+            }
+        }
+    }
+
+    class NoneCompleter: IArgumentCompleter
+    {
+        public IEnumerable<CompletionResult> CompleteArgument(
+            string commandName,
+            string parameterName,
+            string wordToComplete,
+            CommandAst commandAst,
+            System.Collections.IDictionary fakeBoundParameters
+        ) => default;
+    }
+
+    public class ShellServerFuzzyPredictor : ICommandPredictor
+    {
+        // List<(distance, (pathRef, fullPath))>
+        public static List<ValueTuple<int, Tuple<string, string>>> container =
+            new List<ValueTuple<int, Tuple<string, string>>>();
+
+        readonly List<string> cmds = new List<string> {"pz", "set-shellserverpathfuzzy"};
+
+        private object _optionsInst;
+        private object _userStyle;
+        private PropertyInfo _predictionSourceProperty;
+
+        private readonly Guid _guid;
+
+        internal ShellServerFuzzyPredictor(string guid)
+        {
+            _guid = new Guid(guid);
+
+            var arg = Array.Empty<object>();
+            _optionsInst = ReadLine.Invoke(
+                    ReadLine.GetOptions,
+                    ref arg
+            ) ;
+            _predictionSourceProperty = _optionsInst.GetType().GetProperty("PredictionSource");
+
+            _userStyle = _predictionSourceProperty.GetValue(
+                    _optionsInst
+            );
         }
 
-        public static int GetDamerauLevenshteinDistance(string s, string t)
+        public Guid Id => _guid;
+
+        public string Name => "ShellServer";
+
+        public string Description => "Provides prediction for the `Set-ShellServerPathFuzzy` Cmdlet.";
+
+        static int GetDamerauLevenshteinDistance(string s, string t)
         // Totally stolen from https://www.csharpstar.com/csharp-string-distance-algorithm/
         {
             var bounds = new { Height = s.Length + 1, Width = t.Length + 1 };
@@ -333,90 +444,24 @@ namespace ShellServer
 
             return matrix[bounds.Height - 1, bounds.Width - 1];
         }
-    }
-
-    class PathCmdCompleter: IArgumentCompleter
-    {
-        public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        )
-        {
-            // Refer directly Globals so it can dinamically change
-            foreach (string comp in Globals.pathCmdCompletions)
-            {
-                if (
-                        string.IsNullOrEmpty(wordToComplete)
-                        || comp.StartsWith(wordToComplete)
-                )
-                yield return new CompletionResult(
-                        comp, comp,
-                        CompletionResultType.ParameterValue,
-                        comp
-                );
-            }
-
-            var fallBack = CompletionCompleters.CompleteFilename(wordToComplete);
-            foreach (var res in fallBack)
-            {
-                string fullPath = res.ToolTip;
-                var attr = System.IO.File.GetAttributes(fullPath);
-                bool isDir = (attr & System.IO.FileAttributes.Directory) > 0;
-                
-                if (isDir) yield return res;
-            }
-        }
-    }
-
-    public class ShellServerFuzzyPredictor : ICommandPredictor
-    {
-        // List<(distance, (lastPath, fullPath))>
-        public static List<ValueTuple<int, Tuple<string, string>>> container;
-        readonly List<string> cmds = new List<string> {"pz", "set-shellserverpathfuzzy"};
-
-        private object _optionsInst;
-        private object _userStyle;
-        private PropertyInfo _predictionSourceProperty;
-
-        private readonly Guid _guid;
-
-        internal ShellServerFuzzyPredictor(string guid)
-        {
-            _guid = new Guid(guid);
-
-            var arg = new object[0];
-            _optionsInst = ReadLine.Invoke(
-                    ReadLine.GetOptions,
-                    ref arg
-            ) ;
-            _predictionSourceProperty = _optionsInst.GetType().GetProperty("PredictionSource");
-
-            _userStyle = _predictionSourceProperty.GetValue(
-                    _optionsInst
-            );
-        }
 
         public static void SortContainer(string args)
         {
+            bool caseSensitive = args != args.ToLower();
+            string refPath;
+
             for (int i = 0; i < container.Count; i++)
             {
-                int dld = Helpers.GetDamerauLevenshteinDistance(
-                        args, container[i].Item2.Item1
-                );
+                refPath = container[i].Item2.Item1;
+
+                if (!caseSensitive) refPath = refPath.ToLower();
+
+                int dld = GetDamerauLevenshteinDistance(args, refPath);
                 container[i] = (dld, container[i].Item2);
             }
 
             container.Sort();
         }
-
-        public Guid Id => _guid;
-
-        public string Name => "ShellServer";
-
-        public string Description => "Provides prediction for the `Set-ShellServerPathFuzzy` Cmdlet.";
 
         public SuggestionPackage GetSuggestion(
             PredictionClient client, PredictionContext context, CancellationToken cancellationToken
@@ -452,15 +497,14 @@ namespace ShellServer
             string args = input.Substring(input.IndexOf(' ') + 1);
             SortContainer(args);
 
-            PathFuzzyCmd.chosenPath = container[0].Item2.Item2;
-            int min = container[0].Item1;
+            int threshold = container[0].Item1 + 2;
 
             var res = new List<PredictiveSuggestion>();
 
             for (int i = 0; i < container.Count; i++)
             {
                 var target = container[i];
-                if (target.Item1 == min)
+                if (target.Item1 <= threshold)
                 {
                     string fullPath = target.Item2.Item2;
 
@@ -500,9 +544,18 @@ namespace ShellServer
 
     [Cmdlet(VerbsLifecycle.Invoke, "ShellServerPrompt")]
     [Alias("prompt")]
+    [OutputType(typeof(void))]
     public class PromptCmd : PSCmdlet
     {
+        static readonly string admin =
+            IsUserAnAdmin() ? "(Admin) " : "";
         
+        static bool firstPrompt = true;
+
+        [DllImport("shell32.dll", SetLastError=true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool IsUserAnAdmin();
+
         protected override void ProcessRecord()
         {
             int width = Host.UI.RawUI.BufferSize.Width;
@@ -540,7 +593,7 @@ namespace ShellServer
                 venv = "";
             }
 
-            width -= Globals.admin.Length;
+            width -= admin.Length;
 
             Globals.SendToServer($"1{question}{path};{width};{duration}");
 
@@ -552,9 +605,8 @@ namespace ShellServer
             }
             catch (SocketException e)
             {
-                Console.WriteLine(
-                    "Server didn't respond in time. Press Enter to return to previous prompt."
-                );
+                string msg = "Server didn't respond in time. Press Enter to return to previous prompt.";
+                Console.WriteLine(msg);
                
                 WriteError(
                     new ErrorRecord(
@@ -574,10 +626,10 @@ namespace ShellServer
                 return;
             }
 
-            if (Globals.firstPrompt)
+            if (firstPrompt)
             {
                 new Thread(new ThreadStart(Globals.ThreadInit)).Start();
-                Globals.firstPrompt = false;
+                firstPrompt = false;
             }
 
             char changed = prompt[0];
@@ -585,20 +637,43 @@ namespace ShellServer
 
             if (changed == '1')
             {
+                // It's the server responsability to not send `changed` in the first prompt
                 new Thread(new ThreadStart(Helpers.UpdateCompletions)).Start();
             }
 
-            WriteObject($"\n\x1b[31m{Globals.admin}\x1b[32m{venv}{prompt}");
+            WriteObject($"\n\x1b[31m{admin}\x1b[32m{venv}{prompt}");
         }
     }
     
     [Cmdlet(VerbsCommon.Set, "ShellServerPath")]
     [Alias("p")]
+    [OutputType(typeof(void))]
     public class PathCmd : PSCmdlet
     {
+        static readonly string HOME =
+            Environment.GetEnvironmentVariable("USERPROFILE");
+
+        // Had to make a choice here, specific completers
+        // or the ease of use of `SwitchParameter`
+
+        [Parameter()]
+        [Alias("D")]
+        [ArgumentCompleter(typeof(DirsCompleter))]
+        public string Delete {get; set;}
+
+        [Parameter()]
+        [Alias("DR")]
+        [ArgumentCompleter(typeof(ServerPathRefsCompleter))]
+        public string DeletePathRef {get; set;}
+
         [Parameter()]
         [Alias("A")]
-        public SwitchParameter Add {get; set;}
+        [ArgumentCompleter(typeof(DirsCompleter))]
+        public string Add {get; set;}
+
+        [Parameter()]
+        [ArgumentCompleter(typeof(NoneCompleter))]
+        public string As {get; set;}
 
         [Parameter()]
         [Alias("O")]
@@ -608,215 +683,183 @@ namespace ShellServer
         [Alias("J")]
         public SwitchParameter Junction {get; set;}
 
-        [Parameter(ValueFromRemainingArguments = true)]
-        [ArgumentCompleter(typeof(PathCmdCompleter))]
-        public string[] Path;
+        [Parameter(Position = 0)]
+        [ArgumentCompleter(typeof(SeverRefPathsAndDirsCompleter))]
+        public string PathOrPathRef;
 
-        void HandleAdd(string joinedPath, string curdir)
+        // resolution order:
+        // p -d . -dr someref -a . -as anyname anyref -j -o
+
+        string? ResolveJunction(string path)
         {
-            if (Output.IsPresent)
-            {
-                WriteWarning("The `Output` option was ignored.");
-            }
+            var attr = File.GetAttributes(path);
 
-            if (Junction.IsPresent)
-            {
-                WriteWarning("The `Junction` option was ignored.");
-            }
+            bool isDir = (attr & FileAttributes.Directory) > 0;
+            bool isJunction = (attr & FileAttributes.ReparsePoint) > 0;
 
-            string target;
-
-            if (joinedPath is null)
-            {
-                target = curdir;
-            }
-            else
-            {
-                target = System.IO.Path.Combine(curdir, joinedPath);
-            }
-
-            if (System.IO.Path.Exists(target))
-            {
-                Globals.SendToServer($"9{target}");
-                return;
-            }
-
-            WriteError(
-                new ErrorRecord(
-                    new ArgumentException("No match found."),
-                    "No existing relative or full paths matches arg.",
-                    ErrorCategory.ObjectNotFound,
-                    null
-                )
-            );
-        }
-
-        void HandleJunction(string joinedPath, string curdir)
-        {
-            if (Output.IsPresent)
-            {
-                WriteWarning("The `Output` option was ignored.");
-            }
-
-            string target;
-
-            if (string.IsNullOrEmpty(joinedPath))
-            {
-                target = curdir;
-            }
-            else
-            {
-                target = System.IO.Path.Combine(
-                    curdir, joinedPath);
-            }
-
-            if (!System.IO.Path.Exists(target))
+            if (!(isDir && isJunction))
             {
                 WriteError(
                     new ErrorRecord(
-                        new ArgumentException($"{target} not found."),
-                        "Given path doesn't exists.",
+                        new ArgumentException($"Junction for '{path}' not found."),
+                        "A directory junction for the given path was not found.",
                         ErrorCategory.ObjectNotFound,
                         null
                     )
                 );
-                return;
+                return null;
             }
 
-            var attr = System.IO.File.GetAttributes(target);
+            return Directory.ResolveLinkTarget(path, false).FullName;
+        }
 
-            bool isJunction = (attr & System.IO.FileAttributes.ReparsePoint) > 0;
-            bool isDir = (attr & System.IO.FileAttributes.Directory) > 0;
+        string? ResolveArg(string arg, string curdir)
+        {
+            // GetFullPath will resolve . and ..
+            arg = Path.GetFullPath(Path.Combine(curdir, arg)).TrimEnd('\\');
 
-            if (isDir && isJunction)
+            if (!Path.Exists(arg))
             {
-                SessionState.Path.SetLocation(
-                    System.IO.Directory.ResolveLinkTarget(target, false).FullName
+                WriteError(
+                    new ErrorRecord(
+                        new ArgumentException($"'{arg}' not found."),
+                        "No existing relative or full paths matches arg.",
+                        ErrorCategory.ObjectNotFound,
+                        null
+                    )
                 );
-                return;
+                return null;
             }
 
-            WriteObject("No Junction found.");
+            var attr = File.GetAttributes(arg);
+            bool isDir = (attr & FileAttributes.Directory) > 0;
+
+            if (!isDir)
+            {
+                WriteError(
+                    new ErrorRecord(
+                        new ArgumentException($"'{arg}' is not a directory."),
+                        "Paths to this command must be directories.",
+                        ErrorCategory.InvalidArgument,
+                        null
+                    )
+                );
+                return null;
+            }
+
+            return arg;
         }
 
         protected override void ProcessRecord()
         {
-            if (Path is null) Path = new string[0];
-
-            string joinedPath = string.Join(' ', Path);
+            bool anyBeforeWasUsed = false;
             string curdir = SessionState.Path.CurrentLocation.Path;
             string target;
 
-            if (joinedPath.StartsWith(".\\"))
+            if (!string.IsNullOrEmpty(Delete))
             {
-                joinedPath = joinedPath.TrimStart('.').TrimStart('\\');
+                anyBeforeWasUsed = true;
+                target = ResolveArg(Delete, curdir);
+                if (target != null)
+                    Globals.SendToServer($"9Del{target}");
             }
-            joinedPath = joinedPath.TrimEnd('\\');
 
-            if (Add.IsPresent)
+            if (!string.IsNullOrEmpty(DeletePathRef))
             {
-                HandleAdd(joinedPath, curdir);
+                anyBeforeWasUsed = true;
+                Globals.SendToServer($"9DRf{DeletePathRef}");;
+            }
+
+            if (!string.IsNullOrEmpty(Add))
+            {
+                anyBeforeWasUsed = true;
+                target = ResolveArg(Add, curdir);
+                if (target != null)
+                    Globals.SendToServer($"9Add{target};{As}");
+            }
+
+            if (
+                    string.IsNullOrEmpty(PathOrPathRef)
+                    && !Junction.IsPresent
+                    && !Output.IsPresent
+                    && anyBeforeWasUsed
+            )
+            {
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(PathOrPathRef))
+            {
+                // Sever will return empty string for `.\pathref\`
+                // but returns for `pathref` if it exists
+                // so purpose is clear when user pass rel-path-like
+                Globals.SendToServer($"3{PathOrPathRef}");
+                target = Globals.ReceiveFromServer();
+
+                if (string.IsNullOrEmpty(target))
+                {
+                    if (Path.IsPathFullyQualified(PathOrPathRef))
+                        target = PathOrPathRef;
+                    else
+                        target = ResolveArg(PathOrPathRef, curdir);
+
+                    if (target is null) return;
+                }
+            }
+            else
+            {
+                target = Junction.IsPresent ? curdir : HOME;
             }
 
             if (Junction.IsPresent)
             {
-                HandleJunction(joinedPath, curdir);
-                return;
+                target = ResolveJunction(target);
+                if (target is null) return;
             }
-
-            if (string.IsNullOrEmpty(joinedPath))
-            {
-                SessionState.Path.SetLocation(Globals.HOME);
-                return;
-            }
-
-            target = $"3{joinedPath}";
-
-            Globals.SendToServer(target);
-            string response = Globals.ReceiveFromServer();
 
             if (Output.IsPresent)
             {
-                if (!string.IsNullOrEmpty(response))
-                {
-                    WriteObject(response);
-                }
-                else
-                {
-                    WriteError(
-                        new ErrorRecord(
-                            new ArgumentException("No match found."),
-                            "Argument not found in server's list of paths.",
-                            ErrorCategory.ObjectNotFound,
-                            null
-                        )
-                    );
-                }
+                WriteObject(target);
                 return;
             }
 
-            if (!string.IsNullOrEmpty(response))
-            {
-                SessionState.Path.SetLocation(response);
-                return;
-            }
-
-            if (
-                    System.IO.Path.Exists(
-                        System.IO.Path.Combine(
-                            SessionState.Path.CurrentLocation.Path,
-                            joinedPath))
-            )
-            {
-                SessionState.Path.SetLocation(joinedPath);
-                return;
-            }
-
-            WriteError(
-                new ErrorRecord(
-                    new ArgumentException("No match found."),
-    "Argument not found in server's list of paths nor corresponds to existing relative or full path.",
-                    ErrorCategory.ObjectNotFound,
-                    null
-                )
-            );
+            SessionState.Path.SetLocation(target);
         }
     }
 
     [Cmdlet(VerbsCommon.Set, "ShellServerPathFuzzy")]
     [Alias("pz")]
+    [OutputType(typeof(void))]
     public class PathFuzzyCmd : PSCmdlet
     {
-        [Parameter(ValueFromRemainingArguments = true, Mandatory = true)]
-        [ArgumentCompleter(typeof(PathCmdCompleter))]
+        [Parameter(
+                ValueFromRemainingArguments = true,
+                Mandatory = true,
+                Position = 0
+        )]
+        [ArgumentCompleter(typeof(NoneCompleter))]
         public string[] Query;
-
-        public static string chosenPath;
 
         protected override void ProcessRecord()
         {
+            string chosenPath;
             string lastArg = Query[Query.Length - 1];
 
-            // If the predictor wasn't used, if it was invoked from history.
-            if (chosenPath is null)
+            if (Path.IsPathFullyQualified(lastArg))
             {
-                if (System.IO.Path.IsPathFullyQualified(lastArg))
-                {
-                    chosenPath = lastArg;
-                }
-                else if (ShellServerFuzzyPredictor.container.Count > 0)
-                {
-                    string args = string.Join(' ', Query);
-                    ShellServerFuzzyPredictor.SortContainer(args);
-                    chosenPath =
-                        ShellServerFuzzyPredictor.container[0].Item2.Item2;
-                }
-                else
-                {
-                    WriteObject("The cache is empty.");
-                    return;
-                }
+                chosenPath = lastArg;
+            }
+            else if (ShellServerFuzzyPredictor.container.Count > 0)
+            {
+                string args = string.Join(' ', Query);
+                ShellServerFuzzyPredictor.SortContainer(args);
+                chosenPath =
+                    ShellServerFuzzyPredictor.container[0].Item2.Item2;
+            }
+            else
+            {
+                WriteObject("The cache is empty.");
+                return;
             }
 
             SessionState.Path.SetLocation(chosenPath);
@@ -830,13 +873,83 @@ namespace ShellServer
     [OutputType(typeof(string))]
     public class ListDirCmd : PSCmdlet
     {
+        [Parameter()]
+        [Alias("A")]
+        public SwitchParameter All;
+
+        [Parameter()]
+        [Alias("C")]
+        public SwitchParameter Color;
+
+        [Parameter()]
+        [Alias("I")]
+        public SwitchParameter Icons;
+
+        [Parameter()]
+        [Alias("L")]
+        public SwitchParameter List;
+
+        [Parameter()]
+        [Alias("CR")]
+        public SwitchParameter CreationTime;
+
+        [Parameter()]
+        [Alias("M")]
+        public SwitchParameter ModifiedTime;
+
+        [Parameter()]
+        [Alias("AC")]
+        public SwitchParameter AccessTime;
+
+        [Parameter()]
+        [Alias("H")]
+        public SwitchParameter Hour;
+
+        [Parameter()]
+        [Alias("HE")]
+        public SwitchParameter Headers;
+
+        [Parameter()]
+        public SwitchParameter SetDefault;
+
+        [Parameter()]
+        public SwitchParameter NoOutput;
+
         [Parameter(Position = 0)]
+        [ArgumentCompleter(typeof(DirsCompleter))]
         public string Path { get; set; }
+
+        [Parameter()]
+        [ArgumentCompleter(typeof(NoneCompleter))]
+        public string Options { get; set; }
+
+        public static string Settings = "-cilmH";
 
         protected override void ProcessRecord()
         {
+            string opt = "-";
+
+            if (string.IsNullOrEmpty(Options))
+            {
+                if (All.IsPresent)          opt += "a";
+                if (Color.IsPresent)        opt += "c";
+                if (Icons.IsPresent)        opt += "i";
+                if (List.IsPresent)         opt += "l";
+                if (CreationTime.IsPresent) opt += "C";
+                if (ModifiedTime.IsPresent) opt += "m";
+                if (AccessTime.IsPresent)   opt += "A";
+                if (Hour.IsPresent)         opt += "H";
+                if (Headers.IsPresent)      opt += "h";
+            }
+            else opt += Options;
+
+            if (SetDefault.IsPresent) Settings = opt;
+            if (NoOutput.IsPresent) return;
+
+            opt = opt == "-" ? Settings : opt;
+
             string curdir = SessionState.Path.CurrentLocation.Path;
-            string response = Helpers.ServerListDir(Path, curdir, "-cil");
+            string response = Helpers.ServerListDir(Path, curdir, opt);
             if (response.Length > 0) WriteObject(response);
         }
     }
@@ -847,17 +960,19 @@ namespace ShellServer
     public class ListDirAllCmd : PSCmdlet
     {
         [Parameter(Position = 0)]
+        [ArgumentCompleter(typeof(DirsCompleter))]
         public string Path { get; set; }
 
         protected override void ProcessRecord()
         {
             string curdir = SessionState.Path.CurrentLocation.Path;
-            string response = Helpers.ServerListDir(Path, curdir, "-acil");
+            string response = Helpers.ServerListDir(Path, curdir, "-acilmCHh");
             if (response.Length > 0) WriteObject(response);
         }
     }
 
     [Cmdlet(VerbsCommon.Search, "ShellServerHistory")]
+    [OutputType(typeof(string))]
     public class HistoryCmd : PSCmdlet
     {
         [Parameter()]
@@ -896,10 +1011,11 @@ namespace ShellServer
     }
    
     [Cmdlet(VerbsLifecycle.Invoke, "ShellServerEnterKeyHandler")]
+    [OutputType(typeof(void))]
     public class EnterKeyHandlerCmd : PSCmdlet
     {
-        static bool wasIncomplete = false;
-        static bool prevWasIncomplete = false;
+        static bool isIncomplete;
+        static bool prevWasIncomplete;
 
         protected override void ProcessRecord()
         {
@@ -908,34 +1024,56 @@ namespace ShellServer
                     ref ReadLine.GetBufferStateArgs
             );
             
-            var ast = (Ast)ReadLine.GetBufferStateArgs[0];
-
+            var ast = ReadLine.GetBufferStateArgs[0] as Ast;
+            var err = ReadLine.GetBufferStateArgs[2] as ParseError[];
             var line = ast.Extent.Text;
-            var err = (ParseError[])ReadLine.GetBufferStateArgs[2];
-            var cursor = (int)ReadLine.GetBufferStateArgs[3];
 
-            prevWasIncomplete = wasIncomplete;
-            wasIncomplete = false;
+            prevWasIncomplete = isIncomplete;
+            isIncomplete = false;
 
             foreach (ParseError e in err)
             {
                 if (e.IncompleteInput)
                 {
-                    wasIncomplete = true;
+                    isIncomplete = true;
                     break;
                 }
             }
 
             if (!prevWasIncomplete)
             {
-                Console.SetCursorPosition(
-                        0, Console.GetCursorPosition().Top - 2);
+                var cursorPosition = Console.GetCursorPosition();
+
+                int width = Host.UI.RawUI.BufferSize.Width;
+                int printableFirstLine = width - 2;  // `❯ `
+                int prompt_lines = 2;
+                int lineLength = line.Length;
+
+                if (lineLength > printableFirstLine)
+                {
+                    prompt_lines++;
+                    lineLength -= printableFirstLine;
+                    prompt_lines += lineLength / width;
+                }
+
+                int top = Math.Max(0, cursorPosition.Top - prompt_lines);
+
+                Console.SetCursorPosition(0, top);
 
                 // Sending objects through the pipeline won't work.
                 // Seems like wrapping this invocation in 
                 // `Set-PSReadLineKeyHandler` script block
                 // won't let anything out.
                 Console.Write($"\x1b[J\x1b[34m❯\x1b[0m {line}");
+
+                // Have to reset to same `Left` position so PSReadLine 
+                // (I think) won't put an extra new line between the
+                // last command we just rewrote and the output.
+                // It happens if the cursor is not in the end of the
+                // output when Enter is pressed.
+                Console.SetCursorPosition(
+                        cursorPosition.Left, top + prompt_lines - 2
+                );
             }
 
             ReadLine.Invoke(
@@ -946,10 +1084,11 @@ namespace ShellServer
     }
 
     [Cmdlet(VerbsCommon.Switch, "ShellServerTheme")]
+    [OutputType(typeof(void))]
     public class ThemeCmd : PSCmdlet
     {
         [Parameter(ValueFromRemainingArguments = true)]
-        [ValidateSet("terminal", "system", "blue", "readline")]
+        [ValidateSet("terminal", "system", "blue", "readline", "prompt")]
         public string[] Args;
 
         protected override void ProcessRecord()
@@ -958,7 +1097,14 @@ namespace ShellServer
             {
                 if (opt.ToLower() == "readline")
                 {
-                    Helpers.ToggleReadLineTheme();
+                    ref var readlineThemeArg = ref Globals.lightColors;
+                    if (Globals.isLight)
+                    {
+                        readlineThemeArg = ref Globals.darkColors;
+                    }
+
+                    ReadLine.SetReadLineTheme(ref readlineThemeArg);
+                    Globals.isLight = !Globals.isLight;
                     continue;
                 }
 
@@ -968,6 +1114,7 @@ namespace ShellServer
     }
 
     [Cmdlet(VerbsCommon.Switch, "ShellServerTimeout")]
+    [OutputType(typeof(void))]
     public class TimeoutCmd : PSCmdlet
     {
         [Parameter(Position = 0, Mandatory = true)]
@@ -980,6 +1127,7 @@ namespace ShellServer
     }
    
     [Cmdlet(VerbsCommon.Switch, "ShellServerOptions")]
+    [OutputType(typeof(void))]
     public class OptionsCmd : PSCmdlet
     {
         [Parameter(
@@ -1015,6 +1163,7 @@ namespace ShellServer
     }
    
     [Cmdlet(VerbsCommon.Get, "ShellServerBuffer")]
+    [OutputType(typeof(string))]
     public class BufferCmd : PSCmdlet
     {
         [Parameter()]
@@ -1031,23 +1180,32 @@ namespace ShellServer
             if (response.Length > 0) WriteObject(response);
         }
     }
-#if DEBUG
-    [Cmdlet(VerbsDiagnostic.Test, "test")]
-    public class Test : PSCmdlet
+
+    [Cmdlet(VerbsCommon.Get, "ShellServerConfig")]
+    public class ConfigCmd : PSCmdlet
     {
         protected override void ProcessRecord()
         {
-            var fallBack = CompletionCompleters.CompleteFilename("some");
-            foreach (var any in fallBack)
-            {
-                WriteObject(any.ResultType);
-                WriteObject(any.ListItemText);
-                WriteObject(any.CompletionText);
-                WriteObject(any.ToolTip);
-                WriteObject(any.GetType().ToString());
-            }
+            string[] configs;
 
+            Globals.SendToServer("2Conf");
+            configs = Globals.ReceiveFromServer().TrimEnd('\n').Split("\n");
+
+            foreach (string config in configs)
+            {
+                string[] splitted = config.Split(';');
+
+                WriteObject(new ConfigResult{
+                    Config = splitted[0],
+                    Value = splitted[1]
+                });
+            }
         }
     }
-#endif
+
+    public class ConfigResult
+    {
+        public string Config { get; set; }
+        public string Value  { get; set; }
+    }
 }

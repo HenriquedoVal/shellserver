@@ -12,7 +12,7 @@
 RootModule = 'ShellServer.dll'
 
 # Version number of this module.
-ModuleVersion = '0.1.0'
+ModuleVersion = '0.1.1'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@ CompanyName = 'Unknown'
 Copyright = '(c) Henrique do Val. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'ShellServer Client.'
+Description = 'ShellServer Client. More in https://github.com/HenriquedoVal/shellserver'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '7.2'
@@ -83,7 +83,8 @@ CmdletsToExport = @(
   'Switch-ShellServerTheme',
   'Switch-ShellServerTimeout',
   'Switch-ShellServerOptions',
-  'Get-ShellServerBuffer'
+  'Get-ShellServerBuffer',
+  'Get-ShellServerConfig'
 )
 
 # Variables to export from this module
@@ -110,7 +111,7 @@ PrivateData = @{
         Tags = @('prompt', 'navigation')
 
         # A URL to the license for this module.
-        # LicenseUri = 'https://www.mit.edu/~amini/LICENSE.md'
+        LicenseUri = 'https://www.mit.edu/~amini/LICENSE.md'
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/HenriquedoVal/shellserver'
