@@ -3,6 +3,7 @@ from datetime import datetime
 
 from .__init__ import SEP, USER_HOME
 
+g_duration_treshold = 0
 
 symbols_map = {
     'Git': '',
@@ -118,7 +119,7 @@ def resolve_duration(seconds: float) -> str:
 
     res = ''
     for val, unit in zip((hours, minutes, seconds), ('h', 'm', 's')):
-        if unit == 's' and not res and val > 2:
+        if unit == 's' and not res and val > g_duration_treshold:
             res += f'{val}{unit}'
         elif unit == 's' and 'h' in res:
             break
@@ -129,16 +130,19 @@ def resolve_duration(seconds: float) -> str:
 
 
 def resolve_clocks(duration: float, width: int) -> str:
-    res = resolve_duration(duration)
-    if res:
-        res = symbols_map['Duration'] + ' ' + res
+    res = ''
 
-    if width - len(res) - 11 >= 0:
+    taken = resolve_duration(duration)
+    if taken:
+        res += symbols_map['Duration'] + ' ' + taken
+
+    if width >= len(res) + 11:
         time_str = datetime.now().strftime('%H:%M:%S')
+
         if res:
-            res += ' ' + symbols_map['Clock'] + ' ' + time_str
-        else:
-            res += symbols_map['Clock'] + ' ' + time_str
+            res += ' '
+
+        res += symbols_map['Clock'] + ' ' + time_str
 
     return res
 
@@ -317,24 +321,27 @@ def get_prompt(
 
     while prompt_length > width:
 
-        if counter in range(4):
+        if counter == 0:
+            result_clocks = resolve_clocks(duration, width - prompt_length)
+
+        elif counter == 1:
+            result_brackets = get_brackets_no_version(brackets, after)
+            no_versions = True
+
+        elif counter in range(2, 5):
             result_cwd, result_link = get_ephem_cwd_and_link(
                 cwd, link, 5 - counter, 0
             )
 
-        elif counter == 4:
-            result_brackets = get_brackets_no_version(brackets, after)
-            no_versions = True
-
-        elif counter == 5:
-            result_clocks = resolve_clocks(duration, width - prompt_length)
-
-        elif counter in range(6, 9):
+        elif counter in range(5, 8):
             result_cwd, result_link = get_ephem_cwd_and_link(
-                cwd, link, 3, 65 - counter * 5
+                cwd, link, 1, 65 - counter * 5
             )
 
-        elif counter == 9:
+        if counter == 8:
+            result_clocks = resolve_clocks(duration, width - prompt_length)
+
+        elif counter >= 9:
             break
 
         counter += 1

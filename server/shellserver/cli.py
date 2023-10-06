@@ -4,7 +4,7 @@ from .__init__ import PORT, APP_HOME, CACHE_PATH
 HELP_MSG = (
     '''
 usage: shellserver <COMMAND> [Args]
-       shellserver {kill|clear|dump}
+       shellserver {kill|sync|clear|dump}
        shellserver run [Args]
 
 shellserver gives some functionalities for better navigation on PowerShell
@@ -13,8 +13,9 @@ commands:
 
     run       Run the server.
     kill      Kill the server.
-    clear     clear the server cache.
-    dump      Dump the server cache.
+    sync      Clear useless entries and write cache to disk.
+    clear     Delete the server cache.
+    dump      Dump the server cache to stdout.
 
 options:
   -h, --help  show this help message and exit'''
@@ -25,11 +26,11 @@ def run():
     from shellserver import __main__
 
 
-def kill():
+def send(msg: bytes):
     import socket
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.sendto(b'2Kill', ('localhost', PORT))
+    s.sendto(b'2' + msg, ('127.0.0.1', PORT))
 
 
 def clear():
@@ -77,7 +78,9 @@ def main():
     if cmd == 'run':
         run()
     elif cmd == 'kill':
-        kill()
+        send(b'Kill')
+    elif cmd == 'sync':
+        send(b'Sync')
     elif cmd == 'clear':
         clear()
     elif cmd == 'dump':

@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """
 Module for functions with high level of abstraction
 and/or complexity.
 """
 
 import ctypes
+import fnmatch
 import io
 import multiprocessing as mp
 import os
@@ -23,31 +22,6 @@ from . import utils
 
 OS_CPU_COUNT = os.cpu_count() or 1
 n = '\n\n'
-
-
-class EventHandler:
-    __slots__ = (
-        'obj_ref',
-        'flag',
-    )
-
-    def __init__(self, obj_ref: High):
-        self.obj_ref = obj_ref
-
-        # flags that dispatch has already been called
-        # will be reseted by High obj
-        # starts as True because the first read touches files
-        self.flag = True
-
-    def dispatch(self, event: plugins.FileSystemEvent) -> None:
-        if self.flag:
-            return
-        if event.is_directory:
-            return
-        self.obj_ref.output.write(f'{event}\n')
-
-        self.flag = True
-        self.obj_ref.dirs_mtimes[self.obj_ref.git_dir] = time.time()
 
 
 class FallbackError(Exception):
@@ -593,24 +567,37 @@ class High(base.Base):
         relative: list[str]
     ) -> bool:
         is_dir = file.is_dir()
+
         for pattern in relative:
+
             if pattern[-1] == '/' and not is_dir:
                 continue
-            if utils.PathMatchSpecA(
-                (file.name + '/' if pattern[-1] == '/'
-                    else file.name).encode(),
-                pattern.encode()
-            ):
+
+            name = file.name + '/' if pattern[-1] == '/' else file.name
+
+            # `PathMatchSpecW` doesn't deal with '[a-z]' but will be used if
+            # pattern doesn't have this because it is way faster
+            if '[' in pattern and fnmatch.fnmatch(name, pattern):
+                return True
+
+            elif utils.PathMatchSpecW(name, pattern):
                 return True
 
         for pattern in fixed:
+
             if pattern[-1] == '/' and not is_dir:
                 continue
-            if utils.PathMatchSpecA(
-                (file.relpath + '/' if pattern[-1] == '/'
-                    else file.relpath).encode(),
-                pattern.encode()
-            ):
+
+            relpath = (
+                file.relpath + '/'
+                if pattern[-1] == '/'
+                else file.relpath
+            )
+
+            if '[' in pattern and fnmatch.fnmatch(relpath, pattern):
+                return True
+
+            if utils.PathMatchSpecW(relpath, pattern):
                 return True
 
         return False
@@ -857,3 +844,30 @@ class High(base.Base):
                 return
             else:
                 raise RuntimeError('Unreachable')
+
+
+class EventHandler:
+    __slots__ = (
+        'obj_ref',
+        'flag',
+    )
+
+    def __init__(self, obj_ref: High):
+        self.obj_ref = obj_ref
+
+        # flags that dispatch has already been called
+        # will be reseted by High obj
+        # starts as True because the first read touches files
+        self.flag = True
+
+    def dispatch(self, event: plugins.FileSystemEvent) -> None:
+        if self.flag:
+            return
+        if event.is_directory:
+            return
+        self.obj_ref.output.write(f'{event}\n')
+
+        self.flag = True
+        self.obj_ref.dirs_mtimes[self.obj_ref.git_dir] = time.time()
+
+

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Interface for shellserver.
 
@@ -68,7 +66,7 @@ def gitstatus(target_path: str) -> tuple[str | None, str | None]:
 
     if plugins.HAS_WATCHDOG and Config.watchdog:
         cache = _Globals.obj.get_cached_result()
-        # valid values are None or str
+        # returns int when there's no cache
         if not isinstance(cache, int):
             return branch, cache
 
@@ -146,7 +144,10 @@ def _get_status() -> str | None:
         _Globals.thread = th.Thread(target=_populate_status)
         _Globals.thread.start()
 
-    _Globals.thread.join(timeout=Config.git_timeout / 1000)
+    # Seems non-pythonic but pypy needs this casting to float
+    # or `timeout` will be int
+    timeout = float(Config.git_timeout) / 1000
+    _Globals.thread.join(timeout=timeout)
 
     return _Globals.status
 

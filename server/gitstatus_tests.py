@@ -1015,8 +1015,7 @@ class TestGitstatusTDD7(unittest.TestCase):
 
         ni(self.temp, 'some.txt')
         git = obj.parse_git_status()
-        self.assertIsNone(git)
-        self.assertIsNone(obj.status())
+        self.assertEqual(git, '?' + obj.status())
 
 
 class TestGitstatusTDD8(unittest.TestCase):
@@ -1042,8 +1041,7 @@ class TestGitstatusTDD8(unittest.TestCase):
 
         ni(self.temp, 'some.txt')
         git = obj.parse_git_status()
-        self.assertIsNone(git)
-        self.assertIsNone(obj.status())
+        self.assertEqual(git, '?' + obj.status())
 
 
 if __name__ == "__main__":

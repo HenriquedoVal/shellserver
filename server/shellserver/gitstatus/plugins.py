@@ -12,6 +12,9 @@ try:
 except ImportError:
     HAS_PYGIT2 = False
 
+    class pygit2:  # dummy
+        Repository = None
+
 try:
     from ssd_checker import is_ssd  # fail fast
 
@@ -50,3 +53,6 @@ try:
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
+
+    class FileSystemEvent:
+        ...

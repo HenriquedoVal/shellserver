@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'shellserver'
-version = '0.0.19'
+version = '0.1.0'
 authors = [
   {name = 'Henrique do Val'},
   {email = 'henrique.val@hotmail.com'}
@@ -12,10 +12,10 @@ authors = [
 
 description = 'Server to aid shell navigation.'
 readme = {file = "README.md", content-type = 'text/markdown'}
-requires-python = '>=3.9'
+requires-python = '>=3.10'
 license = {text = 'MIT'}
 dependencies = [
-  'win-basic-tools>=0.4.1',
+  'win-basic-tools>=0.4.2',
   "tomlkit>=0.11.5; python_version < '3.11'"
 ]
 

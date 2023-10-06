@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import deque
 import gc
 from io import StringIO
@@ -34,6 +32,7 @@ class Config:
     light_theme: str = 'Solarized Light'
     trackdir: bool = True
     permanent: bool = False
+    duration_threshold: int | float = 2
 
     # for gitstatus
     use_git: bool = False
@@ -157,6 +156,11 @@ class Server:
                 res.write(f'{conf};{val}\n')
 
             self.dispatcher.send_through(self.sock, res.getvalue(), addr)
+
+        elif entry == 'Sync':
+            self.cache._clear()
+            self.cache.sort()
+            self.cache._save()
 
         elif entry == 'Kill':
             self.cache.finish()
@@ -318,6 +322,7 @@ class Server:
             self.cleanup()
 
             if sig_kill:
+                self.sock.close()
                 break
 
     def get_version_winapi(self, exe: str) -> None:
@@ -398,7 +403,9 @@ class Server:
 
             if config == 'output':
                 self.handle_output(got)
-            elif got is not None and isinstance(got, eval(type_)):
+            elif got is not None and isinstance(got, type_):
+                if config == 'duration_threshold':
+                    style.g_duration_treshold = got
                 setattr(Config, config, got)
 
     def parse_argv(self) -> None:
@@ -418,6 +425,15 @@ class Server:
 
             if cmd == 'output':
                 self.handle_output(value)
+                continue
+
+            if cmd == 'duration_threshold':
+                try:
+                    float_value = float(value)
+                except Exception:
+                    continue
+                style.g_duration_treshold = float_value
+                Config.duration_threshold = float_value
                 continue
 
             try:

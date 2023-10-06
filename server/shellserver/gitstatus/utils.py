@@ -45,19 +45,19 @@ class DirEntryWrapper:
     def stat(self) -> os.stat_result:
         try:
             return self.entry.stat()
-        except PermissionError:
+        except OSError:
             return self.entry.stat(follow_symlinks=False)
 
     def is_file(self) -> bool:
         try:
             return self.entry.is_file()
-        except PermissionError:
+        except OSError:
             return self.entry.is_file(follow_symlinks=False)
 
     def is_dir(self) -> bool:
         try:
             return self.entry.is_dir()
-        except PermissionError:
+        except OSError:
             return self.entry.is_dir(follow_symlinks=False)
 
     def is_symlink(self) -> bool:
@@ -96,6 +96,6 @@ def read_async(path: str, size: int) -> tuple[ctypes.Array[Any], OVERLAPPED]:
     return buffer, overlapped
 
 
-PathMatchSpecA = ctypes.windll.shlwapi.PathMatchSpecA
-PathMatchSpecA.argtypes = ctypes.wintypes.LPCSTR, ctypes.wintypes.LPCSTR
-PathMatchSpecA.restype = ctypes.wintypes.BOOL
+PathMatchSpecW = ctypes.windll.shlwapi.PathMatchSpecW
+PathMatchSpecW.argtypes = ctypes.wintypes.LPCWSTR, ctypes.wintypes.LPCWSTR
+PathMatchSpecW.restype = ctypes.wintypes.BOOL

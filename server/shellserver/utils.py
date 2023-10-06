@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import ctypes
 import json
 import os
@@ -102,11 +100,11 @@ def get_file_version(filename: str) -> str | None:
 
 
 class DirCache:
-    __slots__ = 'dirs', 'save_on_exit', 'completions', 'manual_functions'
+    __slots__ = 'dirs', '_save_on_exit', 'completions', 'manual_functions'
 
     # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
     def __init__(self):
-        self.save_on_exit = False  # New paths were added to cache?
+        self._save_on_exit = False  # New paths were added to cache?
 
         if os.path.exists(CACHE_PATH):
             with open(CACHE_PATH, 'rb') as in_file:
@@ -160,8 +158,8 @@ class DirCache:
             self.dirs.remove(i)
 
         # will be slow with 1000 entries?
-        self.completions = ';'.join(item[2] for item in self.dirs)
-        self._set_save_on_exit()
+        self.completions = ';'.join([item[2] for item in self.dirs])
+        self.set_save_on_exit()
 
         return True
 
@@ -192,7 +190,7 @@ class DirCache:
 
         self.dirs.append([0, path, path_ref])
 
-        self._set_save_on_exit()
+        self.set_save_on_exit()
 
         return True
 
@@ -223,13 +221,13 @@ class DirCache:
         # update only given full_path to one
         self.dirs[idx][0] = 1
 
-        self._set_save_on_exit()
+        self.set_save_on_exit()
 
-    def _set_save_on_exit(self):
+    def set_save_on_exit(self):
         # just want to set save_on_exit if it is false to start thread
         # that will capture WM_SAVE_YOURSELF
-        if not self.save_on_exit:
-            self.save_on_exit = True
+        if not self._save_on_exit:
+            self._save_on_exit = True
             threading.Thread(target=self._signal_cap, daemon=True).start()
 
     def finish(self):
@@ -243,7 +241,7 @@ class DirCache:
         # if there were calls to clear the cache during this runtime
         if not os.path.exists(CACHE_PATH):
             return
-        if self.save_on_exit:
+        if self._save_on_exit:
             with open(CACHE_PATH, 'wb') as out:
                 pickle.dump(self.dirs, out, protocol=5)
 
@@ -254,7 +252,7 @@ class DirCache:
         ]
 
         if aux:
-            self._set_save_on_exit()
+            self.set_save_on_exit()
 
         for item in aux:
             self.dirs.remove(item)
@@ -308,15 +306,14 @@ class Dispatcher:
         func = self.shell_func.get(shell)
 
         if send_update:
-            addr_update_counter = self.addr_update.get(addr)
+            addr_update_counter = self.addr_update.get(
+                addr, self.update_counter
+            )
 
-            if addr_update_counter is None:
-                up = '0'
-            else:
-                up = '1' if addr_update_counter < self.update_counter else '0'
+            up = '1' if addr_update_counter < self.update_counter else '0'
 
-                if up == '1':
-                    self.addr_update[addr] = self.update_counter
+            if up == '1':
+                self.addr_update[addr] = self.update_counter
 
             data = up + data
 

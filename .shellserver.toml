@@ -4,6 +4,7 @@
 
 ## General
 # trackdir = true  # automatically add dirs for `p` use
+# duration_threshold = 2.0  # show last execution time if bigger than this
 # git_timeout = 120
 # disable_git = false
 # use_git = false  # instead of gitstatus subpackage

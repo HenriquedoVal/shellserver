@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 import os
 import subprocess
@@ -530,7 +528,7 @@ class Base(packs.Packs):
             repo.free()
             self.pygit2_repos[self.git_dir] = repo
 
-        d: dict[str, int] = repo.status()
+        d: dict[str, int] = repo.status(untracked_files='normal')
 
         unt = sta = mod = del_ = 0
         for value in d.values():
