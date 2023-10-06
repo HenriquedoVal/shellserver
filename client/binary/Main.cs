@@ -5,15 +5,11 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Collections;
-using System.Collections.Generic;
-using System.Reflection;
 
 using System.Management.Automation;
 using System.Management.Automation.Language;
 using System.Management.Automation.Runspaces;
 using System.Management.Automation.Subsystem;
-using System.Management.Automation.Subsystem.Prediction;
 
 using Microsoft.Win32;
 using Microsoft.PowerShell.Commands;
@@ -23,13 +19,13 @@ namespace ShellServer
 {
     public class Globals : IModuleAssemblyInitializer, IModuleAssemblyCleanup
     {
-        public static UdpClient client = new UdpClient();
-        public static Hashtable lightColors;
-        public static Hashtable darkColors;
+        const short port = 5432;
+
+        public static UdpClient client;
+        public static string[,] lightColors;
+        public static string[,] darkColors;
         public static string[] pathCmdCompletions;
         public static bool isLight;
-
-        const short port = 5432;
 
         static IPEndPoint endpoint = new IPEndPoint(
                 IPAddress.Loopback, port
@@ -40,7 +36,8 @@ namespace ShellServer
 
         public void OnImport()
         {
-            client.Connect("localhost", port);
+            client = new UdpClient();
+            client.Connect(IPAddress.Loopback, port);
             SendToServer("2InitpwshBin");
 
             Runspace.DefaultRunspace.Events.SubscribeEvent(
@@ -48,81 +45,59 @@ namespace ShellServer
                  new PSEventReceivedEventHandler(ExitHandler),
                  false, false
             );
-        }
-
-        public void OnRemove(PSModuleInfo psModuleInfo)
-        {
-            SubsystemManager.UnregisterSubsystem(
-                    SubsystemKind.CommandPredictor, new Guid(predictorIdentifier)
-            );
-        }
-
-        public static void ThreadInit()
-        {
-            Helpers.UpdateCompletions();
-
-            const string readlineAsm = "Microsoft.PowerShell.PSReadLine";
-            var currAsms = AppDomain.CurrentDomain.GetAssemblies();
-           
-            foreach (Assembly asm in currAsms)
-            {
-                if (asm.FullName.StartsWith(readlineAsm))
-                {
-                    var types = asm.GetExportedTypes();
-                    foreach (Type t in types)
-                    {
-                        if (t.Name == "PSConsoleReadLine")
-                        {
-                            ReadLine.ReadLineClass = t;
-                            break;
-                        }
-                    }
-                    break;
-                }
+        // }
+        //
+        // public static void ThreadInit()
+        // {
+        
+            try {
+                Helpers.UpdateCompletions();
+            } catch (SocketException) {
+                Remove();
+                throw;
             }
 
-            // Serialize???
-            var colors = new Hashtable();
+            ReadLine.SetUp();
 
-            colors["Command"]                = "\x1b[93m"    ;
-            colors["Comment"]                = "\x1b[92m"    ;
-            colors["ContinuationPrompt"]     = "\x1b[94m"    ;
-            colors["DefaultToken"]           = "\x1b[97m"    ;
-            colors["Emphasis"]               = "\x1b[96m"    ;
-            colors["InlinePrediction"]       = "\x1b[90m"    ;
-            colors["Keyword"]                = "\x1b[92m"    ;
-            colors["ListPrediction"]         = "\x1b[33m"    ;
-            colors["ListPredictionSelected"] = "\x1b[34;238m";
-            colors["Member"]                 = "\x1b[34m"    ;
-            colors["Number"]                 = "\x1b[34m"    ;
-            colors["Operator"]               = "DarkGray"    ;
-            colors["Parameter"]              = "DarkGray"    ;
-            colors["Selection"]              = "\x1b[34;238m";
-            colors["String"]                 = "DarkCyan"    ;
-            colors["Type"]                   = "\x1b[32m"    ;
-            colors["Variable"]               = "Green"       ;
+            lightColors = new string[,] {
+                { "Command"               , "\x1b[93m"    },
+                { "Comment"               , "\x1b[92m"    },
+                { "ContinuationPrompt"    , "\x1b[94m"    },
+                { "DefaultToken"          , "\x1b[97m"    },
+                { "Emphasis"              , "\x1b[96m"    },
+                { "InlinePrediction"      , "\x1b[90m"    },
+                { "Keyword"               , "\x1b[92m"    },
+                { "ListPrediction"        , "\x1b[33m"    },
+                { "ListPredictionSelected", "\x1b[34;238m"},
+                { "Member"                , "\x1b[34m"    },
+                { "Number"                , "\x1b[34m"    },
+                { "Operator"              , "DarkGray"    },
+                { "Parameter"             , "DarkGray"    },
+                { "Selection"             , "\x1b[34;238m"},
+                { "String"                , "DarkCyan"    },
+                { "Type"                  , "\x1b[32m"    },
+                { "Variable"              , "Green"       },
+            };
 
-            lightColors = (Hashtable)colors.Clone();
-
-            colors["Command"]                = "\x1b[93m"      ;
-            colors["Comment"]                = "\x1b[32m"      ;
-            colors["ContinuationPrompt"]     = "\x1b[34m"      ;
-            colors["DefaultToken"]           = "\x1b[37m"      ;
-            colors["Emphasis"]               = "\x1b[96m"      ;
-            colors["InlinePrediction"]       = "\x1b[38;5;238m";
-            colors["Keyword"]                = "\x1b[92m"      ;
-            colors["ListPrediction"]         = "\x1b[33m"      ;
-            colors["ListPredictionSelected"] = "\x1b[48;5;238m";
-            colors["Member"]                 = "\x1b[97m"      ;
-            colors["Number"]                 = "\x1b[97m"      ;
-            colors["Operator"]               = "\x1b[90m"      ;
-            colors["Parameter"]              = "\x1b[90m"      ;
-            colors["Selection"]              = "\x1b[30;47m"   ;
-            colors["String"]                 = "\x1b[36m"      ;
-            colors["Type"]                   = "\x1b[34m"      ;
-            colors["Variable"]               = "\x1b[92m"      ;
-
-            darkColors = colors;
+            darkColors = new string[,] {
+                { "Command"               , "\x1b[93m"      },
+                { "Comment"               , "\x1b[32m"      },
+                { "ContinuationPrompt"    , "\x1b[34m"      },
+                { "DefaultToken"          , "\x1b[37m"      },
+                { "Emphasis"              , "\x1b[96m"      },
+                { "InlinePrediction"      , "\x1b[38;5;238m"},
+                { "Keyword"               , "\x1b[92m"      },
+                { "ListPrediction"        , "\x1b[33m"      },
+                { "ListPredictionSelected", "\x1b[48;5;238m"},
+                { "Member"                , "\x1b[97m"      },
+                { "Number"                , "\x1b[97m"      },
+                { "Operator"              , "\x1b[90m"      },
+                { "Parameter"             , "\x1b[90m"      },
+                { "Selection"             , "\x1b[30;47m"   },
+                { "String"                , "\x1b[36m"      },
+                { "Type"                  , "\x1b[34m"      },
+                { "Variable"              , "\x1b[92m"      },
+            };
 
             const string subKey = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 
@@ -132,18 +107,18 @@ namespace ShellServer
                 if ((int)value == 1) isLight = true;
             }
 
-            if (isLight) ReadLine.SetReadLineTheme(ref lightColors);
+            if (isLight)
+            {
+                ReadLine.SetReadLineTheme(lightColors);
+            }
+            
+            ReadLine.StackOption("PromptText", new string[] {"❯ "});
+            ReadLine.SetOptions();
 
-            var handler = new object[4];
-
-            handler[0] = new string[] {"Enter"};
-            handler[1] = ScriptBlock.Create("Invoke-ShellServerEnterKeyHandler");
-            handler[2] = "ShellServer Module Enter key handler";
-            handler[3] = "";
-
-            ReadLine.Invoke(
-                    ReadLine.SetKeyHandler,
-                    ref handler
+            ReadLine.SetKeyHandler(
+                    Key: "Enter",
+                    scriptBlock: "Invoke-ShellServerEnterKeyHandler",
+                    Description: "ShellServer Module Enter key handler"
             );
 
             client.Client.ReceiveTimeout = 3000;
@@ -152,14 +127,32 @@ namespace ShellServer
             SubsystemManager.RegisterSubsystem(SubsystemKind.CommandPredictor, predictor);
         }
 
-        static void ExitHandler(object sender, EventArgs e)
-        {
-            try
-            {
-                SendToServer("2Exit");
-            }
-            catch (Exception) {}
+        public void OnRemove(PSModuleInfo psModuleInfo) => Remove();
 
+        static void ExitHandler(object sender, EventArgs e) => Remove();
+
+        public static void Remove()
+        {
+            try {
+                SendToServer("2Exit");
+                client.Dispose();
+            } catch (Exception) {}
+
+            try {
+                SubsystemManager.UnregisterSubsystem(
+                        SubsystemKind.CommandPredictor, new Guid(predictorIdentifier)
+                );
+            } catch (Exception) {}
+
+            try {
+                ScriptBlock.Create(
+                    "Set-PSReadLineKeyHandler -Key Enter -Function AcceptLine"
+                ).Invoke();
+
+                ScriptBlock.Create(
+                    "Remove-Alias -Name prompt"
+                ).Invoke();
+            } catch (Exception) {}
         }
 
         public static void SendToServer(string msg)
@@ -189,52 +182,6 @@ namespace ShellServer
             }
 
             return msg;
-        }
-    }
-
-    class ReadLine
-    // Just CAN'T reference Microsoft.PowerShell.PSConsoleReadLine in compilation time.
-    {
-        public const string ValidateAndAcceptLine = "ValidateAndAcceptLine";
-        public const string GetBufferState = "GetBufferState";
-        public const string SetKeyHandler = "SetKeyHandler";
-        public const string GetOptions = "GetOptions";
-        // public const string SetOptions = "SetOptions";
-
-        public static Type ReadLineClass;
-
-        public static object[] GetBufferStateArgs = new object[4];
-        public static object[] ValidateAndAcceptLineArgs = {null, null};
-
-        public static object? Invoke(string methodName, ref object[] args)
-        {
-            return ReadLineClass.InvokeMember(
-                    methodName,
-                    BindingFlags.InvokeMethod,
-                    Type.DefaultBinder,
-                    null,
-                    args
-            );
-        }
-
-        public static void SetReadLineTheme(ref Hashtable colors)
-        {
-            var arg = Array.Empty<object>();
-            var inst = ReadLine.Invoke(
-                    ReadLine.GetOptions,
-                    ref arg
-            );
-
-            foreach (DictionaryEntry entry in colors)
-            {
-                inst.GetType().InvokeMember(
-                    entry.Key.ToString() + "Color",
-                    BindingFlags.Public | BindingFlags.SetProperty | BindingFlags.Instance,
-                    Type.DefaultBinder,
-                    inst,
-                    new object[] {entry.Value.ToString()}
-                );
-            }
         }
     }
 
@@ -284,263 +231,6 @@ namespace ShellServer
         }
     }
 
-    class SeverRefPathsAndDirsCompleter: IArgumentCompleter
-    {
-        DirsCompleter Dirs = new DirsCompleter();
-        ServerPathRefsCompleter ServerRefs = new ServerPathRefsCompleter();
-
-        public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        )
-        {
-            foreach (CompletionResult comp in ServerRefs.CompleteArgument(
-                        commandName, parameterName, wordToComplete, commandAst, fakeBoundParameters)
-            )
-            {
-                yield return comp;
-            }
-
-            foreach (CompletionResult comp in Dirs.CompleteArgument(
-                        commandName, parameterName, wordToComplete, commandAst, fakeBoundParameters)
-            )
-            {
-                yield return comp;
-            }
-        }
-    }
-
-    class ServerPathRefsCompleter: IArgumentCompleter
-    {
-         public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        )
-        {
-            // Refer directly Globals so it can dinamically change
-            foreach (string comp in Globals.pathCmdCompletions)
-            {
-                if (
-                        string.IsNullOrEmpty(wordToComplete)
-                        || comp.StartsWith(wordToComplete)
-                )
-                {
-                    string res = comp;
-                    if (comp.Contains(' ')) res = $@"""{comp}""";
-                    yield return new CompletionResult(
-                            res, res,
-                            CompletionResultType.ParameterValue,
-                            "ShellServer path reference"
-                    );
-                }
-            }
-        }
-    }
-
-    class DirsCompleter: IArgumentCompleter
-    {
-        public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        )
-        {
-            var pathCompletions = CompletionCompleters.CompleteFilename(wordToComplete);
-            foreach (var res in pathCompletions)
-            {
-                // ToolTip is the abs path.
-                var attr = File.GetAttributes(res.ToolTip);
-                bool isDir = (attr & FileAttributes.Directory) > 0;
-                
-                if (isDir) yield return res;
-            }
-        }
-    }
-
-    class NoneCompleter: IArgumentCompleter
-    {
-        public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        ) => default;
-    }
-
-    public class ShellServerFuzzyPredictor : ICommandPredictor
-    {
-        // List<(distance, (pathRef, fullPath))>
-        public static List<ValueTuple<int, Tuple<string, string>>> container =
-            new List<ValueTuple<int, Tuple<string, string>>>();
-
-        readonly List<string> cmds = new List<string> {"pz", "set-shellserverpathfuzzy"};
-
-        private object _optionsInst;
-        private object _userStyle;
-        private PropertyInfo _predictionSourceProperty;
-
-        private readonly Guid _guid;
-
-        internal ShellServerFuzzyPredictor(string guid)
-        {
-            _guid = new Guid(guid);
-
-            var arg = Array.Empty<object>();
-            _optionsInst = ReadLine.Invoke(
-                    ReadLine.GetOptions,
-                    ref arg
-            ) ;
-            _predictionSourceProperty = _optionsInst.GetType().GetProperty("PredictionSource");
-
-            _userStyle = _predictionSourceProperty.GetValue(
-                    _optionsInst
-            );
-        }
-
-        public Guid Id => _guid;
-
-        public string Name => "ShellServer";
-
-        public string Description => "Provides prediction for the `Set-ShellServerPathFuzzy` Cmdlet.";
-
-        static int GetDamerauLevenshteinDistance(string s, string t)
-        // Totally stolen from https://www.csharpstar.com/csharp-string-distance-algorithm/
-        {
-            var bounds = new { Height = s.Length + 1, Width = t.Length + 1 };
-
-            int[,] matrix = new int[bounds.Height, bounds.Width];
-
-            for (int height = 0; height < bounds.Height; height++) { matrix[height, 0] = height; };
-            for (int width = 0; width < bounds.Width; width++) { matrix[0, width] = width; };
-
-            for (int height = 1; height < bounds.Height; height++)
-            {
-                for (int width = 1; width < bounds.Width; width++)
-                {
-                    int cost = (s[height - 1] == t[width - 1]) ? 0 : 1;
-                    int insertion = matrix[height, width - 1] + 1;
-                    int deletion = matrix[height - 1, width] + 1;
-                    int substitution = matrix[height - 1, width - 1] + cost;
-
-                    int distance = Math.Min(insertion, Math.Min(deletion, substitution));
-
-                    if (height > 1 && width > 1 && s[height - 1] == t[width - 2] && s[height - 2] == t[width - 1])
-                    {
-                        distance = Math.Min(distance, matrix[height - 2, width - 2] + cost);
-                    }
-
-                    matrix[height, width] = distance;
-                }
-            }
-
-            return matrix[bounds.Height - 1, bounds.Width - 1];
-        }
-
-        public static void SortContainer(string args)
-        {
-            bool caseSensitive = args != args.ToLower();
-            string refPath;
-
-            for (int i = 0; i < container.Count; i++)
-            {
-                refPath = container[i].Item2.Item1;
-
-                if (!caseSensitive) refPath = refPath.ToLower();
-
-                int dld = GetDamerauLevenshteinDistance(args, refPath);
-                container[i] = (dld, container[i].Item2);
-            }
-
-            container.Sort();
-        }
-
-        public SuggestionPackage GetSuggestion(
-            PredictionClient client, PredictionContext context, CancellationToken cancellationToken
-        )
-        {
-            string input = context.InputAst.Extent.Text;
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return default;
-            }
-
-            var tokens = context.InputTokens;
-            var cmd = tokens[0];
-
-            if (
-                    (cmd.TokenFlags != TokenFlags.CommandName)
-                    || (!cmds.Contains(cmd.Text.ToLower()))
-                    
-                    // In the input "pz arg" there are 3 tokens:
-                    // `pz`, `arg` and `endOfInput`
-                    || (tokens.Count < 3) 
-            )
-            {
-                return default;
-            }
-
-            // Set PredictionSource to `Plugin` only.
-            this._predictionSourceProperty.SetValue(
-                    this._optionsInst, 4
-            );
-
-            // If there are 3 tokens, there is a space and something more
-            string args = input.Substring(input.IndexOf(' ') + 1);
-            SortContainer(args);
-
-            int threshold = container[0].Item1 + 2;
-
-            var res = new List<PredictiveSuggestion>();
-
-            for (int i = 0; i < container.Count; i++)
-            {
-                var target = container[i];
-                if (target.Item1 <= threshold)
-                {
-                    string fullPath = target.Item2.Item2;
-
-                    if (fullPath.Contains(' ')) fullPath = @$"""{fullPath}""";
-
-                    res.Add(new PredictiveSuggestion(
-                        string.Concat(input, " " + fullPath))
-                    );
-                }
-            }
-
-            return new SuggestionPackage(res);
-        }
-
-        public bool CanAcceptFeedback(PredictionClient client, PredictorFeedbackKind feedback)
-        {
-            if (feedback == PredictorFeedbackKind.CommandLineExecuted)
-            {
-                return true;
-            }
-            return false;
-        }
-
-        public void OnSuggestionDisplayed(PredictionClient client, uint session, int countOrIndex) { }
-
-        public void OnSuggestionAccepted(PredictionClient client, uint session, string acceptedSuggestion) { }
-
-        public void OnCommandLineAccepted(PredictionClient client, IReadOnlyList<string> history) { }
-
-        public void OnCommandLineExecuted(PredictionClient client, string commandLine, bool success)
-        {
-            this._predictionSourceProperty.SetValue(
-                    this._optionsInst, this._userStyle
-            );
-        }
-    }
 
     [Cmdlet(VerbsLifecycle.Invoke, "ShellServerPrompt")]
     [Alias("prompt")]
@@ -550,7 +240,7 @@ namespace ShellServer
         static readonly string admin =
             IsUserAnAdmin() ? "(Admin) " : "";
         
-        static bool firstPrompt = true;
+        // static bool firstPrompt = true;
 
         [DllImport("shell32.dll", SetLastError=true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -605,7 +295,9 @@ namespace ShellServer
             }
             catch (SocketException e)
             {
-                string msg = "Server didn't respond in time. Press Enter to return to previous prompt.";
+                string msg = "Server didn't respond in time. "
+                    + "Press Enter to return to previous prompt.";
+
                 Console.WriteLine(msg);
                
                 WriteError(
@@ -617,20 +309,15 @@ namespace ShellServer
                     )
                 );
 
-                SessionState.InvokeCommand.InvokeScript(
-                        "Remove-Alias -Name prompt"
-                );
-                SessionState.InvokeCommand.InvokeScript(
-                        "Set-PSReadLineKeyHandler -Key Enter -Function AcceptLine"
-                );
+                Globals.Remove();
                 return;
             }
 
-            if (firstPrompt)
-            {
-                new Thread(new ThreadStart(Globals.ThreadInit)).Start();
-                firstPrompt = false;
-            }
+            // if (firstPrompt)
+            // {
+            //     new Thread(new ThreadStart(Globals.ThreadInit)).Start();
+            //     firstPrompt = false;
+            // }
 
             char changed = prompt[0];
             prompt = prompt.Substring(1);
@@ -1016,21 +703,19 @@ namespace ShellServer
     {
         static bool isIncomplete;
         static bool prevWasIncomplete;
+        static bool isValid;
+        static bool prevWasValid;
+        static Ast  prevAst;
 
         protected override void ProcessRecord()
         {
-            ReadLine.Invoke(
-                    ReadLine.GetBufferState,
-                    ref ReadLine.GetBufferStateArgs
-            );
-            
-            var ast = ReadLine.GetBufferStateArgs[0] as Ast;
-            var err = ReadLine.GetBufferStateArgs[2] as ParseError[];
-            var line = ast.Extent.Text;
-
+            prevAst = ReadLine.BufferState[0] as Ast;
             prevWasIncomplete = isIncomplete;
             isIncomplete = false;
 
+            ReadLine.GetBufferState();
+
+            var err = ReadLine.BufferState[2] as ParseError[];
             foreach (ParseError e in err)
             {
                 if (e.IncompleteInput)
@@ -1040,46 +725,65 @@ namespace ShellServer
                 }
             }
 
-            if (!prevWasIncomplete)
+            if (prevWasIncomplete)
             {
-                var cursorPosition = Console.GetCursorPosition();
-
-                int width = Host.UI.RawUI.BufferSize.Width;
-                int printableFirstLine = width - 2;  // `❯ `
-                int prompt_lines = 2;
-                int lineLength = line.Length;
-
-                if (lineLength > printableFirstLine)
-                {
-                    prompt_lines++;
-                    lineLength -= printableFirstLine;
-                    prompt_lines += lineLength / width;
-                }
-
-                int top = Math.Max(0, cursorPosition.Top - prompt_lines);
-
-                Console.SetCursorPosition(0, top);
-
-                // Sending objects through the pipeline won't work.
-                // Seems like wrapping this invocation in 
-                // `Set-PSReadLineKeyHandler` script block
-                // won't let anything out.
-                Console.Write($"\x1b[J\x1b[34m❯\x1b[0m {line}");
-
-                // Have to reset to same `Left` position so PSReadLine 
-                // (I think) won't put an extra new line between the
-                // last command we just rewrote and the output.
-                // It happens if the cursor is not in the end of the
-                // output when Enter is pressed.
-                Console.SetCursorPosition(
-                        cursorPosition.Left, top + prompt_lines - 2
-                );
+                ReadLine.ValidateAndAcceptLine();
+                return;
             }
 
-            ReadLine.Invoke(
-                    ReadLine.ValidateAndAcceptLine,
-                    ref ReadLine.ValidateAndAcceptLineArgs
+            prevWasValid = isValid;
+            isValid = ReadLine.Validate() == null;
+
+            var ast = ReadLine.BufferState[0] as Ast;
+            var line = ast.Extent.Text;
+
+            bool sameAst = prevAst?.Extent.Text == line;
+            bool valid = isValid || (!isValid && !prevWasValid && sameAst);
+
+            if (!valid && !isIncomplete)
+            {
+                ReadLine.ValidateAndAcceptLine();
+                return;
+            }
+
+            var cursorPosition = Console.GetCursorPosition();
+
+            int width = Host.UI.RawUI.BufferSize.Width;
+            int printableFirstLine = width - 2;  // `❯ `
+            int promptLines = 2;
+            int lineLength = line.Length;
+
+            if (lineLength > printableFirstLine)
+            {
+                promptLines++;
+                lineLength -= printableFirstLine;
+                promptLines += lineLength / width;
+            }
+
+            int top = Math.Max(0, cursorPosition.Top - promptLines);
+
+            Console.SetCursorPosition(0, top);
+
+            // Sending objects through the pipeline won't work.
+            // Seems like wrapping this invocation in 
+            // `Set-PSReadLineKeyHandler` script block
+            // won't let anything out.
+            Console.Write($"\x1b[J");
+            if (!string.IsNullOrEmpty(line))
+            {
+                Console.Write($"\x1b[34m❯\x1b[0m {line}");
+            }
+
+            // Have to reset to same `Left` position so PSReadLine 
+            // (I think) won't put an extra new line between the
+            // last command we just rewrote and the output.
+            // It happens if the cursor is not in the end of the
+            // output when Enter is pressed.
+            Console.SetCursorPosition(
+                    cursorPosition.Left, top + promptLines - 2
             );
+
+            ReadLine.ValidateAndAcceptLine();
         }
     }
 
@@ -1097,13 +801,14 @@ namespace ShellServer
             {
                 if (opt.ToLower() == "readline")
                 {
-                    ref var readlineThemeArg = ref Globals.lightColors;
+                    var readlineThemeArg = Globals.lightColors;
                     if (Globals.isLight)
                     {
-                        readlineThemeArg = ref Globals.darkColors;
+                        readlineThemeArg = Globals.darkColors;
                     }
 
-                    ReadLine.SetReadLineTheme(ref readlineThemeArg);
+                    ReadLine.SetReadLineTheme(readlineThemeArg);
+
                     Globals.isLight = !Globals.isLight;
                     continue;
                 }
@@ -1193,11 +898,11 @@ namespace ShellServer
 
             foreach (string config in configs)
             {
-                string[] splitted = config.Split(';');
+                string[] split = config.Split(';');
 
                 WriteObject(new ConfigResult{
-                    Config = splitted[0],
-                    Value = splitted[1]
+                    Config = split[0],
+                    Value = split[1]
                 });
             }
         }

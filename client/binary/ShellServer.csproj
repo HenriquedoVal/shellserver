@@ -4,6 +4,7 @@
     <TargetFramework>net7.0-windows</TargetFramework>
     <AssemblyName>ShellServer</AssemblyName>
     <Nullable>annotations</Nullable>
+	<SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
     <!-- <AnalysisMode>All</AnalysisMode> -->
   </PropertyGroup>
 
