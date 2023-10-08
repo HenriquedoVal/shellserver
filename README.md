@@ -31,16 +31,22 @@ The C compilers searched are GCC and G++.
 <details>
 <summary>Options</summary>
 
-- `p -o path` for writing to output. Tool for things like `move somefile (p -o somepath)`.
-- `p -a [path]`: Manually add current dir or given `path` to tracked dirs if `trackdir` is set to false.
-- `p -j [path]`: Go to Junction of current dir or given `path`
-- `p` behaves like `cd` for unknown paths.
+- `p path -o`: For writing to output. Tool for things like `move somefile (p -o somepath)`.
+- `p path -j`: Go to the Junction of the given `path`
+- `p -d path`: Purges given relative or full paths from known paths.
+- `p -dr refpath`: Deletes only the given `refpath` from known paths.
+- `p -a path`: Manually add given `path` to tracked dirs.
+- `p -a path -as given_name`: Will use `given_name` to jump to `path`.
+- `p` behaves like `cd` for relative paths.  
+Invocations like `p -d . -dr someref -a . -as anyname anyref -j -o` are allowed, but doesn't makes much sense.  
+It would remove all references to current dir, delete `someref`, add current dir as `anyname`, and write the junction
+of `anyref` to the output...
 </details>
   
 ### Switching Theme
   
 ![Switch-Theme](./images/switch_theme.gif)
-Name changed to `Switch-ShellServerTheme`.  
+The name changed to `Switch-ShellServerTheme`.  
 <details>
 <summary>Options</summary>
 
@@ -59,7 +65,7 @@ The `system` option is not working properly on Windows 11 22h2...
 ### Searching history
 
 ![history](./images/history.gif)
-Name changed to `Search-ShellServerHistory`.  
+The name changed to `Search-ShellServerHistory`.  
 <details>
 <summary>Options</summary>
 
@@ -87,15 +93,15 @@ Or prepending `-o` plus the initial of the flag:
 `ll -o acilmhCAH`  
   
 Meaning:  
-a : all files  
-c : colors  
-i : icons  
-l : list  
-m : modified time  
-h : headers  
-C : creation time  
-A : access time  
-H : hour  
+a: all files  
+c: colors  
+i: icons  
+l: list  
+m: modified time  
+h: headers  
+C: creation time  
+A: access time  
+H: hour  
 
 </details>
 
@@ -117,20 +123,20 @@ The most important option will be `git_timeout`.
 
 ~~~toml
 git_timeout = 500  # in ms, defaults to 2500
-# the best value is really hardware dependent
-# if you have watchdog, I would recommend something around 100
+# The best value is hardware-dependent.
+# If you have watchdog, I would recommend something around 100,
 # if you don't and the value is too low you might get no status over and over: `[...]`
 ~~~
 See the [example](./.shellserver.toml) for more and the defaults.
   
 ## CLI
 
-The server knows how many clients it haves and will know if you quit the shell with 'exit'  
+The server knows how many clients it has and will know if you quit the shell with 'exit'  
 but if the window or tab is closed on the 'X' button it may outlive the shell. 
 
 ~~~
 usage: shellserver <COMMAND> [Args]
-       shellserver {kill|clear|dump}
+       shellserver {kill|sync|clear|dump}
        shellserver run [Args]
 
 shellserver gives some functionalities for better navigation on PowerShell
@@ -139,8 +145,9 @@ commands:
 
     run       Run the server.
     kill      Kill the server.
-    clear     clear the server cache.
-    dump      Dump the server cache.
+    sync      Clear useless entries and write cache to disk.
+    clear     Delete the server cache.
+    dump      Dump the server cache to stdout.
 
 options:
   -h, --help  show this help message and exit
@@ -148,7 +155,7 @@ options:
 
 ## Requirements
 
-- Python 3.9+ or latest [Pypy](https://www.pypy.org/) (slower than Python 3.11)
+- Python 3.10+ (CPython 3.11+ recommended)
 - PowerShell 7.2+
 - Any NerdFont (I use MesloLGS NF [patched](https://github.com/romkatv/powerlevel10k/blob/master/font.md))
 - A xterm compatible terminal
@@ -167,7 +174,7 @@ Then you can run [this script](./on_startup.ps1) as admin to set the server to r
   
 In your PowerShell profile:
 ~~~PowerShell
-# If you have not set the server on startup. By the beginning of the file
+# If you have NOT set the server on startup. By the beginning of the file
 pythonw -m shellserver  # note the 'w'
 
 # By the end of the file
@@ -191,7 +198,7 @@ If you have installed pygit2, you can pass `--use-pygit2` instead, which is fast
 Any errors that occur will be saved in `$env:localappdata\shellserver\traceback`.  
   
 Attach a _stdout_ to the server, pass `--timeit` to it and it will give the time taken for each communication.  
-Use `output=stdout` to get some info on git repo. You can pass `output=C:\path\to\file` too.  
+Use `output=stdout` to get some info on the git repo. You can pass `output=C:\path\to\file` too.  
 ~~~
 > shellserver kill
 # A message that the server is not responding and your prompt will be like before.
