@@ -295,10 +295,10 @@ namespace ShellServer
             }
             catch (SocketException e)
             {
-                string msg = "Server didn't respond in time. "
-                    + "Press Enter to return to previous prompt.";
 
-                Console.WriteLine(msg);
+                Console.WriteLine(
+                        "Server didn't respond in time. "
+                        + "Press Enter to return to previous prompt.");
                
                 WriteError(
                     new ErrorRecord(
@@ -359,7 +359,6 @@ namespace ShellServer
         public string Add {get; set;}
 
         [Parameter()]
-        [ArgumentCompleter(typeof(NoneCompleter))]
         public string As {get; set;}
 
         [Parameter()]
@@ -400,16 +399,16 @@ namespace ShellServer
             return Directory.ResolveLinkTarget(path, false).FullName;
         }
 
-        string? ResolveArg(string arg, string curdir)
+        string? ResolveArg(string _arg, string curdir)
         {
             // GetFullPath will resolve . and ..
-            arg = Path.GetFullPath(Path.Combine(curdir, arg)).TrimEnd('\\');
+            var arg = Path.GetFullPath(Path.Combine(curdir, _arg)).TrimEnd('\\');
 
             if (!Path.Exists(arg))
             {
                 WriteError(
                     new ErrorRecord(
-                        new ArgumentException($"'{arg}' not found."),
+                        new ArgumentException($"'{_arg}' does not match any `PathRef`, relative or absolute path."),
                         "No existing relative or full paths matches arg.",
                         ErrorCategory.ObjectNotFound,
                         null
@@ -524,7 +523,6 @@ namespace ShellServer
                 Mandatory = true,
                 Position = 0
         )]
-        [ArgumentCompleter(typeof(NoneCompleter))]
         public string[] Query;
 
         protected override void ProcessRecord()
@@ -607,7 +605,6 @@ namespace ShellServer
         public string Path { get; set; }
 
         [Parameter()]
-        [ArgumentCompleter(typeof(NoneCompleter))]
         public string Options { get; set; }
 
         public static string Settings = "-cilmH";
@@ -701,50 +698,31 @@ namespace ShellServer
     [OutputType(typeof(void))]
     public class EnterKeyHandlerCmd : PSCmdlet
     {
-        static bool isIncomplete;
-        static bool prevWasIncomplete;
-        static bool isValid;
-        static bool prevWasValid;
-        static Ast  prevAst;
+        static Int64 Id = -1;
 
         protected override void ProcessRecord()
         {
-            prevAst = ReadLine.BufferState[0] as Ast;
-            prevWasIncomplete = isIncomplete;
-            isIncomplete = false;
+            Int64 curr_id;
+            var res = SessionState.InvokeCommand.InvokeScript(
+                "Get-History -Count 1"
+            );
+            if (res.Count > 0)
+                curr_id = (Int64)res[0].Properties["Id"].Value;
+            else
+                curr_id = 0;
 
             ReadLine.GetBufferState();
 
-            var err = ReadLine.BufferState[2] as ParseError[];
-            foreach (ParseError e in err)
-            {
-                if (e.IncompleteInput)
-                {
-                    isIncomplete = true;
-                    break;
-                }
-            }
-
-            if (prevWasIncomplete)
-            {
-                ReadLine.ValidateAndAcceptLine();
-                return;
-            }
-
-            prevWasValid = isValid;
-            isValid = ReadLine.Validate() == null;
-
             var ast = ReadLine.BufferState[0] as Ast;
             var line = ast.Extent.Text;
+            var empty = line.Length == 0;
 
-            bool sameAst = prevAst?.Extent.Text == line;
-            bool valid = isValid || (!isValid && !prevWasValid && sameAst);
-
-            if (!valid && !isIncomplete)
+            if (curr_id == Id && !empty)
             {
                 ReadLine.ValidateAndAcceptLine();
                 return;
             }
+            if (!empty) Id = curr_id;
 
             var cursorPosition = Console.GetCursorPosition();
 
@@ -762,28 +740,59 @@ namespace ShellServer
 
             int top = Math.Max(0, cursorPosition.Top - promptLines);
 
-            Console.SetCursorPosition(0, top);
+            const string clear_below = "\x1b[J";
+            const string cyan = "\x1b[34m";
+            const string reset = "\x1b[0m";
 
-            // Sending objects through the pipeline won't work.
-            // Seems like wrapping this invocation in 
-            // `Set-PSReadLineKeyHandler` script block
-            // won't let anything out.
-            Console.Write($"\x1b[J");
+            Console.CursorVisible = false;
+            Console.SetCursorPosition(0, top);
+            Console.Write(clear_below);
             if (!string.IsNullOrEmpty(line))
             {
-                Console.Write($"\x1b[34m❯\x1b[0m {line}");
+                Console.Write($"{cyan}❯{reset} {GetColoredLine(line)}");
+
+                // Have to reset to same `Left` position so PSReadLine 
+                // (I think) won't put an extra new line between the
+                // last command we just rewrote and the output.
+                Console.SetCursorPosition(
+                        cursorPosition.Left, top + promptLines - 2
+                );
             }
 
-            // Have to reset to same `Left` position so PSReadLine 
-            // (I think) won't put an extra new line between the
-            // last command we just rewrote and the output.
-            // It happens if the cursor is not in the end of the
-            // output when Enter is pressed.
-            Console.SetCursorPosition(
-                    cursorPosition.Left, top + promptLines - 2
-            );
-
             ReadLine.ValidateAndAcceptLine();
+            Console.CursorVisible = true;
+        }
+
+        string GetColoredLine(string line)
+        {
+            var tokens = ReadLine.BufferState[1] as Token[];
+            var sb = new StringBuilder(line.Length);
+            int written = 0;
+
+            while (written < line.Length && line[written] == ' ')
+            {
+                sb.Append(' ');
+                written++;
+            }
+
+            int len = tokens.Length - 1;
+            for (int i = 0; i < len; i++)
+            {
+                Token t = tokens[i];
+                var text = t.Text;
+                string color = ReadLine.GetTokenColor(t);
+
+                sb.Append($"{color}{text}");
+                written += text.Length;
+
+                while (written < line.Length && line[written] == ' ')
+                {
+                    sb.Append(' ');
+                    written++;
+                }
+            }
+
+            return sb.ToString();
         }
     }
 

@@ -11,11 +11,10 @@ namespace ShellServer
         static Type PSConsoleReadLine;
         static Type SetPSReadLineOption;
 
-		static object singleton;
+        static object singleton;
 
 		static MethodInfo _ValidateAndAcceptLine;
 		static MethodInfo _SetOptions;
-		static MethodInfo _Validate;
 		
 		static object[] _AcceptLineDefaultArg = {null, null};
 		static object[] _GetOptDefaultArg = Array.Empty<object>();
@@ -38,17 +37,13 @@ namespace ShellServer
 			)
 				throw new Exception("Types not found");
 
-			singleton = PSConsoleReadLine.GetField(
-					"_singleton",
-					BindingFlags.Static | BindingFlags.NonPublic
-			).GetValue(null);
+            singleton = PSConsoleReadLine.GetField(
+                    "_singleton",
+                    BindingFlags.Static | BindingFlags.NonPublic
+            ).GetValue(null);
 
 			_ValidateAndAcceptLine = PSConsoleReadLine.GetMethod("ValidateAndAcceptLine");
 			_SetOptions = PSConsoleReadLine.GetMethod("SetOptions");
-
-			_Validate   = PSConsoleReadLine.GetMethod(
-				"Validate", BindingFlags.NonPublic | BindingFlags.Instance
-			);
 		}
 
         static object? _Invoke(string methodName, object[] args)
@@ -83,8 +78,11 @@ namespace ShellServer
 		{
 			if (_optionsInstance is null)
 				_optionsInstance = Activator.CreateInstance(SetPSReadLineOption);
+
 			var prop = SetPSReadLineOption.GetProperty(Property);
-			if (prop is null) throw new Exception($"Property {Property} is null.");
+			if (prop is null)
+                throw new Exception($"Property {Property} is null.");
+
 			prop.SetValue(_optionsInstance, Value);
 		}
 
@@ -115,12 +113,16 @@ namespace ShellServer
 		{
 			return _Invoke("GetOptions", _GetOptDefaultArg);
 		}
-		
-		public static string Validate()
-		{
-			return _Validate.Invoke(
-					singleton, new object[] {BufferState[0] as Ast}
-			) as string;
-		}
+
+        public static string GetTokenColor(Token token)
+        {
+            return PSConsoleReadLine.InvokeMember(
+                    "GetTokenColor",
+                    BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.InvokeMethod,
+                    Type.DefaultBinder,
+                    singleton,
+                    new object[] {token}
+            ) as string;
+        }
     }
 }

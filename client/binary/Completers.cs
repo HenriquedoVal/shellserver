@@ -92,17 +92,6 @@ namespace ShellServer
         }
     }
 
-    class NoneCompleter: IArgumentCompleter
-    {
-        public IEnumerable<CompletionResult> CompleteArgument(
-            string commandName,
-            string parameterName,
-            string wordToComplete,
-            CommandAst commandAst,
-            System.Collections.IDictionary fakeBoundParameters
-        ) => default;
-    }
-
     public class ShellServerFuzzyPredictor : ICommandPredictor
     {
         // List<(distance, (pathRef, fullPath))>
