@@ -1,10 +1,10 @@
-__all__ = [
+__all__ = (
     'HAS_PYGIT2',
     'HAS_SSD_CHECKER',
     'DRIVE_SSD_MAP',
     'pygit2',
     'FileSystemEvent'
-]
+)
 
 try:
     import pygit2
@@ -16,26 +16,26 @@ except ImportError:
         Repository = None
 
 try:
+    DRIVE_SSD_MAP: dict[str, bool] = {}
+
     from ssd_checker import is_ssd  # fail fast
 
     # pywin32 is dep of ssd_checker
     from pythoncom import CoInitialize
 
     from ctypes import windll
-    import string
-    import threading as th
-
-    DRIVE_SSD_MAP: dict[str, bool] = {}
+    from string import ascii_uppercase
+    from threading import Thread
 
     def populate(letter: str) -> None:
         CoInitialize()
         DRIVE_SSD_MAP[letter] = is_ssd(letter)
 
     bitmask = windll.kernel32.GetLogicalDrives()
-    for letter in string.ascii_uppercase:
+    for letter in ascii_uppercase:
         if bitmask & 1:
             letter = letter + ':'
-            th.Thread(
+            Thread(
                 target=populate, args=(letter,), daemon=True
             ).start()
         bitmask >>= 1

@@ -1044,5 +1044,28 @@ class TestGitstatusTDD8(unittest.TestCase):
         self.assertEqual(git, '?' + obj.status())
 
 
+class TestGitstatusTDD9(unittest.TestCase):
+    "Test if file added to index and then deleted is marked as '+1 x1'"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.mkdtemp(prefix='shellserver_test_')
+        popen(f'git init {cls.temp}')
+        obj.init(cls.temp, 'master')
+
+    @classmethod
+    def tearDownClass(cls):
+        obj._write_buffer()
+        os.system(f'rmdir /s /q {cls.temp}')
+
+    def test(self):
+        ni(self.temp, "some_file.txt")
+        popen(f"git -C {self.temp} add some_file.txt")
+        os.remove(f"{self.temp}\\some_file.txt")
+        git = obj.parse_git_status()
+        self.assertEqual(git, "AD1")
+        self.assertEqual(obj.status(), "+1 x1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ and/or complexity.
 """
 
 import ctypes
-import fnmatch
+from fnmatch import fnmatch
 import io
 import multiprocessing as mp
 import os
@@ -18,7 +18,11 @@ from typing import Any
 
 from . import base
 from . import plugins
-from . import utils
+from .utils import (
+    PathMatchSpecW, DirEntryWrapper, DiscardOutput,
+    OVERLAPPED,
+    read_async
+)
 
 OS_CPU_COUNT = os.cpu_count() or 1
 n = '\n\n'
@@ -57,7 +61,7 @@ class High(base.Base):
             read_async: bool = True,
             fallback: bool = True,
             watchdog: bool = True,
-            output: io.TextIOWrapper | utils.DiscardOutput | None = None,
+            output: io.TextIOWrapper | DiscardOutput | None = None,
             _is_worker: bool = False,
             **kwargs,
     ) -> None:
@@ -68,11 +72,11 @@ class High(base.Base):
         self.fallback = fallback
         self.watchdog = watchdog
 
-        self.output: io.TextIOWrapper | io.StringIO | utils.DiscardOutput
+        self.output: io.TextIOWrapper | io.StringIO | DiscardOutput
         if not isinstance(
             output, (io.TextIOWrapper, io.StringIO)
         ) or output is None:
-            self.output = utils.DiscardOutput()
+            self.output = DiscardOutput()
         else:
             self.output = output
 
@@ -90,7 +94,7 @@ class High(base.Base):
         self.dirs_mtimes: dict[str, float] = {}
 
         self.files_readden: deque[
-            tuple[ctypes.Array[Any], utils.OVERLAPPED, float, str]
+            tuple[ctypes.Array[Any], OVERLAPPED, float, str]
         ] = deque()
 
         self.mp_main = multiproc
@@ -205,9 +209,9 @@ class High(base.Base):
         if not self.multiproc:
             self.output.write(
                 'Entries classified: '
-                f'{utils.DirEntryWrapper.counter}\n'
+                f'{DirEntryWrapper.counter}\n'
             )
-        utils.DirEntryWrapper.counter = 0
+        DirEntryWrapper.counter = 0
 
         return status_string
 
@@ -293,7 +297,7 @@ class High(base.Base):
             if self.raised_exception:
                 break
 
-            file = utils.DirEntryWrapper(dir_entry, self.git_dir)
+            file = DirEntryWrapper(dir_entry, self.git_dir)
 
             # 100755(exe) is file
             if file.is_file():
@@ -314,7 +318,7 @@ class High(base.Base):
 
     def handle_dir(
         self,
-        file: utils.DirEntryWrapper,
+        file: DirEntryWrapper,
         fixed: list[str],
         relative: list[str],
         clean_fixed: list[str],
@@ -355,7 +359,7 @@ class High(base.Base):
 
     def handle_tracked_file(
         self,
-        file: utils.DirEntryWrapper,
+        file: DirEntryWrapper,
         tree_items_list: list[tuple[str, str, str]],
         relpath: str
     ) -> None:
@@ -382,7 +386,7 @@ class High(base.Base):
 
         file_hash_in_tree = item[1]
         if not self.linear and self.read_async:
-            buffer, overl = utils.read_async(file.path, st_size)
+            buffer, overl = read_async(file.path, st_size)
             self.files_readden.append(
                 (buffer, overl, st_size, file_hash_in_tree)
             )
@@ -432,11 +436,11 @@ class High(base.Base):
             if file.name == '.git':
                 directory.close()
                 return 0, False
-            sub_dir.append(utils.DirEntryWrapper(file, self.git_dir))
+            sub_dir.append(DirEntryWrapper(file, self.git_dir))
 
         file_present = False
         staged_flag = 0
-        marked_dirs_to_classify: list[utils.DirEntryWrapper] = []
+        marked_dirs_to_classify: list[DirEntryWrapper] = []
         for sub_file in sub_dir:
 
             if sub_file.relpath in self.index_tracked:
@@ -562,7 +566,7 @@ class High(base.Base):
 
     def is_ignored(
         self,
-        file: utils.DirEntryWrapper,
+        file: DirEntryWrapper,
         fixed: list[str],
         relative: list[str]
     ) -> bool:
@@ -577,10 +581,10 @@ class High(base.Base):
 
             # `PathMatchSpecW` doesn't deal with '[a-z]' but will be used if
             # pattern doesn't have this because it is way faster
-            if '[' in pattern and fnmatch.fnmatch(name, pattern):
+            if '[' in pattern and fnmatch(name, pattern):
                 return True
 
-            elif utils.PathMatchSpecW(name, pattern):
+            elif PathMatchSpecW(name, pattern):
                 return True
 
         for pattern in fixed:
@@ -594,10 +598,10 @@ class High(base.Base):
                 else file.relpath
             )
 
-            if '[' in pattern and fnmatch.fnmatch(relpath, pattern):
+            if '[' in pattern and fnmatch(relpath, pattern):
                 return True
 
-            if utils.PathMatchSpecW(relpath, pattern):
+            if PathMatchSpecW(relpath, pattern):
                 return True
 
         return False

@@ -83,7 +83,7 @@ class Server:
         ]
 
         # can't get all executables versions through the api
-        self.exes_to_search_with_winapi = ('pwsh', 'node', 'java')
+        self.exes_to_search_with_winapi = ('pwsh', 'node', 'java', 'dotnet')
 
         self.map_suffix = {
             'node': '.js',
@@ -158,9 +158,10 @@ class Server:
             self.dispatcher.send_through(self.sock, res.getvalue(), addr)
 
         elif entry == 'Sync':
-            self.cache._clear()
+            if self.cache.clear():
+                self.dispatcher.set_update()
             self.cache.sort()
-            self.cache._save()
+            self.cache.save()
 
         elif entry == 'Kill':
             self.cache.finish()

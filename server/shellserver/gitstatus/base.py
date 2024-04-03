@@ -5,6 +5,7 @@ import zlib
 
 from . import packs
 from . import plugins
+from .plugins import HAS_SSD_CHECKER, DRIVE_SSD_MAP
 
 
 class IndexTooBigError(Exception):
@@ -60,12 +61,12 @@ class Base(packs.Packs):
         return: None.
         """
         max_entries = 1000
-        if plugins.HAS_SSD_CHECKER:
-            for drive in plugins.DRIVE_SSD_MAP:
+        if HAS_SSD_CHECKER:
+            for drive in DRIVE_SSD_MAP:
                 if self.git_dir.startswith(drive):
                     # if SSD: 2500 if HDD: 1000
                     max_entries = (
-                        2500 if plugins.DRIVE_SSD_MAP[drive] else 1000
+                        2500 if DRIVE_SSD_MAP[drive] else 1000
                     )
                     break
 
@@ -89,8 +90,13 @@ class Base(packs.Packs):
             version = int.from_bytes(f.read(4), 'big')
             if constant != b'DIRC' or version not in (2, 3):
                 self.index_tracked = {}
+                return
 
             entries = int.from_bytes(f.read(4), 'big')
+
+            if self.fallback and entries > max_entries:
+                raise IndexTooBigError
+
             res = {}
 
             for entry in range(entries):
@@ -102,7 +108,7 @@ class Base(packs.Packs):
 
                 flags = int.from_bytes(f.read(2), 'big')
                 namelen = flags & 0xfff
-                extended = flags & (0b0100_0000 << 8)
+                extended = flags & 16384  # 0b0100_0000 << 8
 
                 entrylen = 62
 
@@ -118,9 +124,6 @@ class Base(packs.Packs):
                     entrylen += 1
 
                 res[name] = mtime
-
-                if self.fallback and len(res) > max_entries:
-                    raise IndexTooBigError
 
                 padlen = (8 - (entrylen % 8)) or 8
                 f.read(padlen)
@@ -186,9 +189,10 @@ class Base(packs.Packs):
         info_refs = self.get_info_refs_content()
         last_commt_hash = None
 
+        target = f'refs/heads/{self.branch}'
         for line in info_refs:
             a, b = line.strip().split()
-            if b == f'refs/heads/{self.branch}':
+            if b == target:
                 last_commt_hash = a
                 break
 
@@ -394,8 +398,8 @@ class Base(packs.Packs):
             content = content.replace(b'\r\n', b'\n', -1)
 
         size = len(content)
-        string = f"blob {size}\x00"
-        hash_ = hashlib.sha1(string.encode() + content).hexdigest()
+        preamble = f"blob {size}\x00"
+        hash_ = hashlib.sha1(preamble.encode() + content).hexdigest()
 
         return hash_
 

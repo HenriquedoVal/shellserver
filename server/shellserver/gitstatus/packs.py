@@ -4,16 +4,16 @@ Low level operations on packfiles.
 
 import os
 import zlib
-import io
+from io import BytesIO, BufferedReader
 from collections import deque
 
 
 class Packs:
     # {'path': (mtime, buffer)}
-    bytes_io_cache: dict[str, tuple[float, io.BytesIO]] = {}
+    bytes_io_cache: dict[str, tuple[float, BytesIO]] = {}
     # [(mtime, path, stream)]
     streams_to_transform_in_bytes_io: deque[
-        tuple[float, str, io.BufferedReader]
+        tuple[float, str, BufferedReader]
     ] = deque()
 
     __slots__ = ()
@@ -119,7 +119,7 @@ class Packs:
         """
         return pack.removesuffix('pack') + 'idx'
 
-    def _get_buffer(self, path: str) -> io.BytesIO | io.BufferedReader:
+    def _get_buffer(self, path: str) -> BytesIO | BufferedReader:
         mtime = os.stat(path, follow_symlinks=False).st_mtime
         cache = self.bytes_io_cache.get(path)
         if cache and cache[0] == mtime:
@@ -135,13 +135,13 @@ class Packs:
         while self.streams_to_transform_in_bytes_io:
             mtime, path, raw = self.streams_to_transform_in_bytes_io.pop()
             raw.seek(0)
-            c = io.BytesIO(raw.read())
+            c = BytesIO(raw.read())
             raw.close()
 
             self.bytes_io_cache[path] = mtime, c
 
     def get_offset(
-        self, file: io.BytesIO | io.BufferedReader,
+        self, file: BytesIO | BufferedReader,
         total_files: int,
         target: int
     ) -> int:

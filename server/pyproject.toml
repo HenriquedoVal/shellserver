@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'shellserver'
-version = '0.1.0'
+version = '0.1.1'
 authors = [
   {name = 'Henrique do Val'},
   {email = 'henrique.val@hotmail.com'}
@@ -39,7 +39,10 @@ Home-page = "https://github.com/HenriquedoVal/shellserver"
 [project.scripts]
 shellserver = 'shellserver.cli:main'
 
-[project.optional-dependencies]
+[project.gui-scripts]
+shellserverw = 'shellserver.cli:main'
+
+# [project.optional-dependencies]
 # all = [
 #   "whatchdog>=3.2.1",
 #   "ssd_checker>=1.0.3",

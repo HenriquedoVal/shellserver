@@ -3,7 +3,7 @@ import ctypes
 import ctypes.wintypes
 from typing import Any
 
-__all__ = ['DiscardOutput', 'DirEntryWrapper', 'read_async']
+__all__ = ('DiscardOutput', 'DirEntryWrapper', 'read_async')
 
 FILE_FLAG_OVERLAPPED = 0x40000000
 GENERIC_READ = 0x80000000
@@ -19,13 +19,13 @@ class DiscardOutput:
 
 
 class OVERLAPPED(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ('Internal', ctypes.c_ulong),
         ('InternalHigh', ctypes.c_ulong),
         ('Offset', ctypes.c_ulong),
         ('OffsetHigh', ctypes.c_ulong),
         ('hEvent', ctypes.c_void_p),
-    ]
+    )
 
 
 class DirEntryWrapper:

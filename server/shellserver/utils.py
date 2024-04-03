@@ -64,8 +64,6 @@ class VS_FIXEDFILEINFO(ctypes.Structure):
 
 
 def get_file_version(filename: str) -> str | None:
-
-    # Get the file version information
     dwHandle = wintypes.DWORD()
     dwLen = version_dll.GetFileVersionInfoSizeW(
         filename, ctypes.byref(dwHandle)
@@ -100,16 +98,16 @@ def get_file_version(filename: str) -> str | None:
 
 
 class DirCache:
-    __slots__ = 'dirs', '_save_on_exit', 'completions', 'manual_functions'
+    __slots__ = 'dirs', 'completions', '_save_on_exit'
 
-    # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
     def __init__(self):
-        self._save_on_exit = False  # New paths were added to cache?
+        self._save_on_exit = False
 
+        # dirs = list[list[precedence: int, abs_path: str, short_path: str]]
         if os.path.exists(CACHE_PATH):
             with open(CACHE_PATH, 'rb') as in_file:
                 self.dirs = pickle.load(in_file)
-            self._clear()
+            self.clear()
         else:
             self.dirs = []
 
@@ -122,7 +120,7 @@ class DirCache:
             with open(CACHE_PATH, 'wb') as in_file:
                 pickle.dump([], in_file)
 
-        self.completions = ';'.join(item[2] for item in self.dirs)
+        self._update_completions()
 
     def manual_manage(self, opt: str, arg: str) -> bool:
         """"""
@@ -157,8 +155,7 @@ class DirCache:
         for i in items_to_delete:
             self.dirs.remove(i)
 
-        # will be slow with 1000 entries?
-        self.completions = ';'.join([item[2] for item in self.dirs])
+        self._update_completions()
         self.set_save_on_exit()
 
         return True
@@ -194,6 +191,23 @@ class DirCache:
 
         return True
 
+    def clear(self) -> bool:
+        """Returns if there was any change to the cache."""
+        aux = [
+            item for item in self.dirs
+            if not os.path.exists(item[1])
+        ]
+
+        for item in aux:
+            self.dirs.remove(item)
+
+        if aux:
+            self.set_save_on_exit()
+            self._update_completions()
+            return True
+
+        return False
+
     def get(self, path_ref: str) -> str:
         for item in self.dirs:
             if item[2] == path_ref:
@@ -209,13 +223,13 @@ class DirCache:
             return
 
         # set every entry precedence with same last path name to zero
-        last_path_name = item[2]
-        idxs_with_same_last_path_name = [
-            other_idx for other_idx, i in enumerate(self.dirs)
-            if i[2] == last_path_name
+        path_ref = item[2]
+        idxs_with_same_path_ref = [
+            other_idx for other_idx, item in enumerate(self.dirs)
+            if item[2] == path_ref
         ]
 
-        for other_idx in idxs_with_same_last_path_name:
+        for other_idx in idxs_with_same_path_ref:
             self.dirs[other_idx][0] = 0
 
         # update only given full_path to one
@@ -231,13 +245,13 @@ class DirCache:
             threading.Thread(target=self._signal_cap, daemon=True).start()
 
     def finish(self):
-        self._clear()
-        self._save()
+        self.clear()
+        self.save()
 
     def sort(self) -> None:
         self.dirs.sort(key=lambda x: x[0], reverse=True)
 
-    def _save(self) -> None:
+    def save(self) -> None:
         # if there were calls to clear the cache during this runtime
         if not os.path.exists(CACHE_PATH):
             return
@@ -245,17 +259,10 @@ class DirCache:
             with open(CACHE_PATH, 'wb') as out:
                 pickle.dump(self.dirs, out, protocol=5)
 
-    def _clear(self) -> None:
-        aux = [
-            item for item in self.dirs
-            if not os.path.exists(item[1])
-        ]
+    def _update_completions(self) -> None:
+        # will be slow with 1000 entries?
+        self.completions = ';'.join(item[2] for item in self.dirs)
 
-        if aux:
-            self.set_save_on_exit()
-
-        for item in aux:
-            self.dirs.remove(item)
 
     def _signal_cap(self):
         import tkinter as tk
@@ -278,7 +285,7 @@ class Dispatcher:
     """
 
     __slots__ = (
-        'addr_shell', 'addr_update', 'shell_func', 'buf_size', 'update_counter'
+        'addr_shell', 'addr_update', 'shell_func', 'buf_size', '_update_counter'
     )
 
     def __init__(self, buf_size: int):
@@ -288,14 +295,14 @@ class Dispatcher:
         self.addr_shell = {}
         self.addr_update = {}
         self.shell_func = {'pwsh': self._pwsh_func}
-        self.update_counter = 0
+        self._update_counter = 0
 
     def set_update(self) -> None:
-        self.update_counter += 1
+        self._update_counter += 1
 
     def register(self, addr: int, shell: str):
         self.addr_shell.update({addr: shell})
-        self.addr_update.update({addr: self.update_counter})
+        self.addr_update.update({addr: self._update_counter})
 
     def send_through(
         self, sock, data: str, addr: tuple[str, int],
@@ -307,13 +314,14 @@ class Dispatcher:
 
         if send_update:
             addr_update_counter = self.addr_update.get(
-                addr, self.update_counter
+                addr, self._update_counter
             )
 
-            up = '1' if addr_update_counter < self.update_counter else '0'
-
-            if up == '1':
-                self.addr_update[addr] = self.update_counter
+            if addr_update_counter < self._update_counter:
+                up = '1'
+                self.addr_update[addr] = self._update_counter
+            else:
+                up = '0'
 
             data = up + data
 
