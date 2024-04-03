@@ -38,8 +38,8 @@ The C compilers searched are GCC and G++.
 - `p -a path`: Manually add given `path` to tracked dirs.
 - `p -a path -as given_name`: Will use `given_name` to jump to `path`.
 - `p` behaves like `cd` for relative paths.  
-Invocations like `p -d . -dr someref -a . -as anyname anyref -j -o` are allowed, but doesn't makes much sense.  
-It would remove all references to current dir, delete `someref`, add current dir as `anyname`, and write the junction
+Invocations like `p -d . -dr someref -a . -as anyname anyref -j -o` are allowed, but doesn't make much sense.  
+It would remove all references to the current dir, delete `someref`, add the current dir as `anyname`, and write the junction
 of `anyref` to the output...
 </details>
   
@@ -156,7 +156,7 @@ options:
 ## Requirements
 
 - Python 3.10+ (CPython 3.11+ recommended)
-- PowerShell 7.2+
+- PowerShell 7.4.1+
 - Any NerdFont (I use MesloLGS NF [patched](https://github.com/romkatv/powerlevel10k/blob/master/font.md))
 - A xterm compatible terminal
 
@@ -169,23 +169,29 @@ ShellServer will work only in PowerShell on Windows.
 > Install-Module ShellServer -Scope CurrentUser -AllowClobber
 ~~~
 
-Then you can run [this script](./on_startup.ps1) as admin to set the server to run on startup and
-`Start-ScheduledTask ShellServer`.
-  
-In your PowerShell profile:
-~~~PowerShell
-# If you have NOT set the server on startup. By the beginning of the file
-pythonw -m shellserver  # note the 'w'
+### Setup the server
 
-# By the end of the file
-Import-Module ShellServer
-~~~
+There is a [helper script](./on_startup.ps1) to set the server to run on startup.
+Alternatively, you can start the server manually with:
+- `shellserverw run`: Does not create output terminal
+- `shellserver run`
+  
+### Setup the client
+
+Add `Import-Module ShellServer` by the end of your PowerShell profile.  
 
 ### Keep updated
+
 As many things might change in versions below 0.1.0, consider upgrading both when one changes.
 ~~~PowerShell
+> shellserver kill
+> Remove-Module ShellServer
+
 > pip install --upgrade shellserver
 > Update-Module ShellServer
+
+> Start-ScheduledTask ShellServer
+> Import-Module ShellServer
 ~~~
 Last break: Client (PowerShell module) v0.1.1 and Server (Python) v0.0.18.
 
